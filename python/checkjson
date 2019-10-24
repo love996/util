@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+
+import util
+import sys
+
+
+if __name__ == '__main__':
+    util.readjson(sys.argv[1])

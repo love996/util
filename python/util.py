@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import os
-import json
+import json5
 
 
 def readjson(filename):
-    json_str = open(filename).read()
-    j = json.loads(json_str)
+    fp = open(filename)
+    j = json5.load(fp)
     return j
 
 

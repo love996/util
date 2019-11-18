@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import json5
+import sys
+
+if __name__ == '__main__':
+    args = sys.argv
+    filename = args[1]
+    with open(filename, "r") as fp:
+        json_map = json5.load(fp)
+
+    with open(filename, "w") as fp:
+        json5.dump(json_map, fp, separators=(',', ':'), indent=4, ensure_ascii=False)

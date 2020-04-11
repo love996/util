@@ -3,6 +3,7 @@
 
 import os
 import json5
+import subprocess
 
 
 def readjson(filename):
@@ -60,3 +61,21 @@ def get_base_type(value):
     if isinstance(value, list):
         return get_base_type(value[0])
     return type(value)
+
+
+# 对subprocess.Popen的封装，返回执行结果
+def run_cmd(cmd, show=True, code="utf8"):
+    # print(cmd)
+    shell = not isinstance(cmd, list)
+    process = subprocess.Popen(cmd, shell=shell, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    lines = []
+    while process.poll() is None:
+        line = process.stdout.readline()
+        # line = line.strip()
+        if line:
+            if show:
+                print(line.decode(code, 'ignore'), end="")
+            lines.append(line)
+        else:
+            break
+    return lines

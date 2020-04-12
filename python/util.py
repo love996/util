@@ -67,6 +67,9 @@ def get_base_type(value):
 def run_cmd(cmd, show=True, code="utf8"):
     # print(cmd)
     shell = not isinstance(cmd, list)
+    # import pdb
+    # pdb.set_trace()
+    print("shell:", shell)
     process = subprocess.Popen(cmd, shell=shell, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     lines = []
     while process.poll() is None:

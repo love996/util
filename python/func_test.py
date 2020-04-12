@@ -16,6 +16,7 @@ class TestDict(unittest.TestCase):
     def test_cmd(self):
         self.assertIsNotNone(run_cmd(['ping', 'www.baidu.com', '-c', '3']))
         self.assertIsNotNone(run_cmd("ping www.baidu.com -c 3"))
+        # run_cmd("https://github.com/yixuehan/study.git", ["--depth=1")
 
 
 if __name__ == '__main__':

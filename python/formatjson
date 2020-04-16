@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json5
+import json
 import sys
 
 if __name__ == '__main__':
@@ -10,5 +11,6 @@ if __name__ == '__main__':
     with open(filename, "r") as fp:
         json_map = json5.load(fp)
 
+    s = json.dumps(json_map, separators=(',', ':'), indent=4, ensure_ascii=False)
     with open(filename, "w") as fp:
-        json5.dump(json_map, fp, separators=(',', ':'), indent=4, ensure_ascii=False)
+        fp.write(s)

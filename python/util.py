@@ -83,3 +83,11 @@ def run_cmd(cmd, show=True, code="utf8"):
         else:
             break
     return lines
+
+
+def unique(obj_list):
+    r = []
+    for obj in obj_list:
+        if obj not in r:
+            r.append(obj)
+    return r

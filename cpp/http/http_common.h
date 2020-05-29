@@ -1,5 +1,11 @@
 #include <boost/beast.hpp>
 #include <spdlog/spdlog.h>
+#include "common/exception.h"
+
+class HttpException : public virtual Exception
+{
+};
+
 
 namespace Http
 {

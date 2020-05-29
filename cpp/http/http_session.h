@@ -1,7 +1,5 @@
-#include <string>
 #include <initializer_list>
 #include <iostream>
-#include <spdlog/spdlog.h>
 #include <boost/beast/ssl.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/beast.hpp>
@@ -14,19 +12,21 @@ namespace net = boost::asio;
 namespace ssl = net::ssl;
 
 
-class HttpClient : public std::enable_shared_from_this<HttpClient>
+class HttpSession: public std::enable_shared_from_this<HttpSession>
 {
 public:
     // HttpClient(bool ssl);
-    HttpClient(const std::string &host, uint16_t port, bool ssl = false);
-    void connect(const std::string &host, uint16_t port);
-    void reconnect();
+    HttpSession(const std::string &host, uint16_t port, bool ssl = false);
+    // void connect(const std::string &host, uint16_t port);
+    ~HttpSession();
+
     template <typename ...Args>
     Http::Response get(const std::string &target, const Args &...args)
     {
         _req = Http::Request{http::verb::get, target, _version};
         return request(target, args...);
     }
+
     template <typename ...Args>
     Http::Response post(const std::string &target, const Args &...args)
     {
@@ -75,7 +75,7 @@ public:
         }
 
         _req.target(target + param);
-        SPDLOG_INFO("target:[{}]", std::string(_req.target()));
+        // SPDLOG_INFO("target:[{}]", std::string(_req.target()));
         // _req.set(http::field::tar)
 
         _req.set(http::field::body, _body);
@@ -116,7 +116,6 @@ public:
         } while(retry >= 0);
         return resp;
     }
-    ~HttpClient();
 
     bool ssl() const
     {
@@ -143,6 +142,7 @@ private:
     bool _connected;
     
 private:
+    void reconnect();
     Http::Response request(Http::Request &&req);
     void setParam(const Http::UrlParam &url_param);
     void setParam(const Http::HeadParam &url_param);

@@ -1,9 +1,9 @@
 #include <initializer_list>
 #include <iostream>
 #include <boost/beast/ssl.hpp>
-#include <boost/algorithm/string.hpp>
 #include <boost/beast.hpp>
 
+#include "common/template.h"
 #include "http_common.h"
 
 namespace beast = boost::beast;
@@ -11,111 +11,51 @@ namespace http = beast::http;
 namespace net = boost::asio;
 namespace ssl = net::ssl;
 
+using ReadCallback = std::function<void (const beast::error_code &, size_t)>;
+
+#define HTTP_METHOD(method) \
+    template <typename ...Args> \
+    Http::Response method(const std::string &target, const Args &...args) \
+    {   \
+        _req = Http::Request{http::verb::method, target, _version}; \
+        return request_proxy(target, args...); \
+    }
+
+
+// static_assert(contains<std::string, Args...>::value, "不应包含回调函数"); \
+// static_assert(contains<std::string, Args...>::value == false, "必须包含回调函数");
+
+#define ASYNC_HTTP_METHOD(method, cb) \
+    template <typename ...Args> \
+    Http::Response async_#method(const std::string &target, const Args &...args) \
+    {   \
+        _req = Http::Request{http::verb::method, target, _version}; \
+        return async_request_proxy(target, args...); \
+    }
+
 
 class HttpSession: public std::enable_shared_from_this<HttpSession>
 {
 public:
-    // HttpClient(bool ssl);
     HttpSession(const std::string &host, uint16_t port, bool ssl = false);
-    // void connect(const std::string &host, uint16_t port);
     ~HttpSession();
 
-    template <typename ...Args>
-    Http::Response get(const std::string &target, const Args &...args)
-    {
-        _req = Http::Request{http::verb::get, target, _version};
-        return request(target, args...);
-    }
+    HTTP_METHOD(get)
+    HTTP_METHOD(post)
 
     template <typename ...Args>
-    Http::Response post(const std::string &target, const Args &...args)
+    Http::Response request_proxy(const std::string &target, const Args &...args)
     {
-        _req = Http::Request{http::verb::post, target, _version};
-        return request(target, args...);
-    }
-
-    template <typename ...Args>
-    Http::Response request(const std::string &target, const Args &...args)
-    {
-        SPDLOG_INFO("target:[{}]", target);
-        _req.set(http::field::host, _host);
-        _req.set(http::field::user_agent, BOOST_BEAST_VERSION);
         std::initializer_list<int> arr{
              (this->setParam(args), 0)...
         };
-        SPDLOG_INFO("args [{}:{}]", arr.size(), sizeof...(args));
         boost::ignore_unused(arr);
-        _req.version(_version);
-        _req.method(http::verb::post);
-        _req.keep_alive(true);
+        _req.target(target);
 
-        // head
-        for (auto &[k, v] : _head_param) {
-            _req.insert(k, v);
-        }
-
-        // url_param
-        std::string param;
-        for (auto &[k, v] : _url_param) {
-            param += "&";
-            param += k;
-            param += "=";
-            boost::replace_all(v, "+", "%2B");
-            boost::replace_all(v, " ", "%20");
-            boost::replace_all(v, "/", "%2F");
-            boost::replace_all(v, "?", "%3F");
-            boost::replace_all(v, "%", "%25");
-            boost::replace_all(v, "#", "%23");
-            boost::replace_all(v, "&", "%26");
-            boost::replace_all(v, "=", "%3D");
-            param += v;
-        }
-        if (param.size() > 0) {
-            param[0] = '?';
-        }
-
-        _req.target(target + param);
-        // SPDLOG_INFO("target:[{}]", std::string(_req.target()));
-        // _req.set(http::field::tar)
-
-        _req.set(http::field::body, _body);
-        _req.prepare_payload();
-
-        Http::Response resp;
-        int retry = 0;
-        if (_req.keep_alive()) {
-            retry = 1;
-        }
-        do {
-            int wb, rb;
-            try {
-                if (_enable_ssl) {
-                    SPDLOG_INFO("send https");
-                    wb = http::write(_ssl_stream, _req);
-                    rb = http::read(_ssl_stream, _buffer, resp);
-                }
-                else {
-                    SPDLOG_INFO("send http");
-                    wb = http::write(_stream, _req);
-                    rb = http::read(_stream, _buffer, resp);
-                }
-                SPDLOG_INFO("write bytes {}", wb);
-                SPDLOG_INFO("read bytes {}", rb);
-                SPDLOG_INFO("read body [{}]", resp.body());
-                break;
-            }
-            catch (beast::system_error &e) {
-                SPDLOG_ERROR("send error [{}]", e.what());
-                if (--retry >= 0) {
-                    reconnect();
-                }
-                else {
-                    break;
-                }
-            }
-        } while(retry >= 0);
-        return resp;
+        make_request();
+        return request();
     }
+
 
     bool ssl() const
     {
@@ -129,6 +69,11 @@ private:
     net::io_context _ctx;
     net::ip::tcp::resolver _resolver;
     beast::tcp_stream _stream;
+    bool _keep_alive;
+    bool _enable_ssl;
+    bool _connected;
+
+
     beast::flat_buffer _buffer;
     Http::UrlParam _url_param;
     Http::StringBody _body;
@@ -138,12 +83,15 @@ private:
     net::ssl::context _ssl_ctx;
     // beast::ssl_stream<beast::tcp_stream> _ssl_stream;
     beast::ssl_stream<beast::tcp_stream> _ssl_stream;
-    bool _enable_ssl;
-    bool _connected;
     
 private:
     void reconnect();
-    Http::Response request(Http::Request &&req);
+    void connect();
+    void disconnect();
+    void make_request() ;
+    Http::Response request();
+
+    // Http::Response request(Http::Request &&req);
     void setParam(const Http::UrlParam &url_param);
     void setParam(const Http::HeadParam &url_param);
     void setParam(const Http::StringBody &body);

@@ -2,6 +2,11 @@
 #include <spdlog/spdlog.h>
 #include "common/exception.h"
 
+namespace beast = boost::beast;
+namespace http = beast::http;
+namespace net = boost::asio;
+namespace ssl = net::ssl;
+
 class HttpException : public virtual Exception
 {
 };
@@ -13,6 +18,9 @@ namespace Http
     void convert(std::string &v);
     using Request = boost::beast::http::request<boost::beast::http::string_body>;
     using Response = boost::beast::http::response<boost::beast::http::string_body>;
+    using RequestHandler = std::function<void (const beast::error_code &, const Request &)>;
+    using ResponseHandler = std::function<void (const beast::error_code &, const Response &)>;
+
     struct Param : public std::map<std::string, std::string>
     {
     public:

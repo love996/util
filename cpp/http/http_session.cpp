@@ -3,33 +3,11 @@
 #include <string>
 #include "util/output.h"
 
-/*
-class HttpException : public std::exception
-{
-public:
-    HttpException(const std::string &msg)
-        : _msg(msg)
-    {
-    }
-    virtual const char *what() const noexcept override
-    {
-        return _msg.c_str();
-    }
-private:
-    std::string _msg;
-};
-*/
-
-
 
 using ErrorMsg = boost::error_info<struct tag_err_msg, std::string>;
 
-// std::ostream &operator<<(std::ostream &os, boost::asio::ip::tcp::endpoint ep)
-// {
-//     return os << ep.address().to_string() << ":" << ep.port();
-// }
-
-HttpSession::HttpSession(const std::string &host, uint16_t port, bool ssl)
+template <bool Client>
+HttpSessionImpl<Client>::HttpSessionImpl(const std::string &host, uint16_t port, bool enable_ssl)
     : _version{11}
     , _host(host)
     , _port(port)
@@ -37,20 +15,23 @@ HttpSession::HttpSession(const std::string &host, uint16_t port, bool ssl)
     , _resolver(_ctx)
     , _stream(_ctx)
     , _keep_alive(true)
-    , _enable_ssl(ssl)
+    , _enable_ssl(enable_ssl)
     , _connected(false)
     , _ssl_ctx(ssl::context::tlsv12_client)
     , _ssl_stream(_ctx, _ssl_ctx)
 {
 }
 
-void HttpSession::reconnect()
+
+template <bool Client>
+void HttpSessionImpl<Client>::reconnect()
 {
     disconnect();
     connect();
 }
 
-void HttpSession::connect()
+template <bool Client>
+void HttpSessionImpl<Client>::connect()
 {
     if (_connected) return;
     auto const results = _resolver.resolve(_host, std::to_string(_port));
@@ -69,9 +50,13 @@ void HttpSession::connect()
     _connected = true;
 }
 
-void HttpSession::disconnect()
+template <bool Client>
+void HttpSessionImpl<Client>::disconnect()
 {
     if (!_connected) return ;
+    _connected = false;
+    return;
+
     boost::beast::error_code ec;
     if (_enable_ssl) {
         COUT << "enable ssl";
@@ -92,27 +77,54 @@ void HttpSession::disconnect()
     }
 }
 
-HttpSession::~HttpSession()
+template <bool Client>
+HttpSessionImpl<Client>::~HttpSessionImpl()
 {
     // disconnect();
 }
 
-void HttpSession::setParam(const Http::UrlParam &url_param)
+template <bool Client>
+void HttpSessionImpl<Client>::setParam(const Http::UrlParam &url_param)
 {
     _url_param = url_param;
 }
 
-void HttpSession::setParam(const Http::HeadParam &head_param)
+template <bool Client>
+void HttpSessionImpl<Client>::setParam(const Http::HeadParam &head_param)
 {
     _head_param = head_param;
 }
 
-void HttpSession::setParam(const Http::StringBody &body)
+template <bool Client>
+void HttpSessionImpl<Client>::setParam(const Http::StringBody &body)
 {
     _body = body;
 }
 
-void HttpSession::make_request()
+template <bool Client>
+void HttpSessionImpl<Client>::setParam(const Http::RequestHandler &handler)
+{
+    if constexpr(Client) {
+        _write_handler = handler;
+    }
+    else {
+        _read_handler = handler;
+    }
+}
+
+template <bool Client>
+void HttpSessionImpl<Client>::setParam(const Http::ResponseHandler &handler)
+{
+    if constexpr(Client) {
+        _read_handler = handler;
+    }
+    else {
+        _write_handler = handler;
+    }
+}
+
+template <bool Client>
+void HttpSessionImpl<Client>::make_request()
 {
     _req.set(http::field::host, _host);
     _req.set(http::field::user_agent, BOOST_BEAST_VERSION);
@@ -144,7 +156,8 @@ void HttpSession::make_request()
     }
 }
 
-Http::Response HttpSession::request()
+template <bool Client>
+Http::Response HttpSessionImpl<Client>::request()
 {
     Http::Response resp;
     int retry = 0;
@@ -177,3 +190,6 @@ Http::Response HttpSession::request()
     } while(retry >= 0);
     return resp;
 }
+
+template class HttpSessionImpl<true>;
+template class HttpSessionImpl<false>;

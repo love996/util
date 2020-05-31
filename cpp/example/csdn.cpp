@@ -7,7 +7,7 @@ using namespace std;
 int main()
 {
     // HttpSession client("www.baidu.com", 443, true);
-    HttpSession client("blog.csdn.net", 443, true);
+    HttpClient client("blog.csdn.net", 443, true);
     
     try {
         auto resp = client.get("/zww0815/article/details/51275266");

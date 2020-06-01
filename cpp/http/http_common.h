@@ -18,8 +18,8 @@ namespace Http
     void convert(std::string &v);
     using Request = boost::beast::http::request<boost::beast::http::string_body>;
     using Response = boost::beast::http::response<boost::beast::http::string_body>;
-    using RequestHandler = std::function<void (const beast::error_code &, const Request &)>;
-    using ResponseHandler = std::function<void (const beast::error_code &, const Response &)>;
+    using RequestHandler = std::function<void (beast::error_code const&, const Request &)>;
+    using ResponseHandler = std::function<void (beast::error_code const&, const Response &)>;
 
     struct Param : public std::map<std::string, std::string>
     {

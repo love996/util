@@ -6,16 +6,30 @@
 
 using ErrorMsg = boost::error_info<struct tag_err_msg, std::string>;
 
-template <bool Client>
-HttpSessionImpl<Client>::HttpSessionImpl(const std::string &host, uint16_t port, bool enable_ssl)
+template <bool ssl, bool Client>
+HttpSessionImpl<ssl, Client>::HttpSessionImpl(const std::string &host, uint16_t port)
     : _version{11}
     , _host(host)
     , _port(port)
-    , _ctx{}
+    , _ctx{_ctx_inner}
     , _resolver(_ctx)
     , _stream(_ctx)
     , _keep_alive(true)
-    , _enable_ssl(enable_ssl)
+    , _connected(false)
+    , _ssl_ctx(ssl::context::tlsv12_client)
+    , _ssl_stream(_ctx, _ssl_ctx)
+{
+}
+
+template <bool ssl, bool Client>
+HttpSessionImpl<ssl, Client>::HttpSessionImpl(net::io_context &ctx, const std::string &host, uint16_t port)
+    : _version{11}
+    , _host(host)
+    , _port(port)
+    , _ctx{ctx}
+    , _resolver(_ctx)
+    , _stream(_ctx)
+    , _keep_alive(true)
     , _connected(false)
     , _ssl_ctx(ssl::context::tlsv12_client)
     , _ssl_stream(_ctx, _ssl_ctx)
@@ -23,40 +37,51 @@ HttpSessionImpl<Client>::HttpSessionImpl(const std::string &host, uint16_t port,
 }
 
 
-template <bool Client>
-void HttpSessionImpl<Client>::reconnect()
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::reconnect()
 {
     disconnect();
     connect();
 }
 
-template <bool Client>
-void HttpSessionImpl<Client>::connect()
+template <>
+void HttpSessionImpl<true, true>::connect()
 {
     if (_connected) return;
     auto const results = _resolver.resolve(_host, std::to_string(_port));
-    if (_enable_ssl) {
-        _ssl_ctx.set_verify_mode(ssl::verify_none);
-        if(! SSL_set_tlsext_host_name(_ssl_stream.native_handle(), _host.c_str())) {   
-            beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
-            BOOST_THROW_EXCEPTION(HttpException() << ErrorMsg(ec.message()));
-        }
-        beast::get_lowest_layer(_ssl_stream).connect(results);
-        _ssl_stream.handshake(ssl::stream_base::client);
+    _ssl_ctx.set_verify_mode(ssl::verify_none);
+    if(! SSL_set_tlsext_host_name(_ssl_stream.native_handle(), _host.c_str())) {   
+        beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
+        BOOST_THROW_EXCEPTION(HttpException() << ErrorMsg(ec.message()));
     }
-    else {
-        _stream.connect(results);
-    }
+    beast::get_lowest_layer(_ssl_stream).connect(results);
+    _ssl_stream.handshake(ssl::stream_base::client);
     _connected = true;
 }
 
-template <bool Client>
-void HttpSessionImpl<Client>::disconnect()
+template <>
+void HttpSessionImpl<false, true>::connect()
+{
+    if (_connected) return;
+    auto const results = _resolver.resolve(_host, std::to_string(_port));
+    _stream.connect(results);
+}
+
+
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::connect()
+{
+    assert(false && "server should not call connect");
+}
+
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::disconnect()
 {
     if (!_connected) return ;
     _connected = false;
     return;
 
+    /*
     boost::beast::error_code ec;
     if (_enable_ssl) {
         COUT << "enable ssl";
@@ -75,56 +100,44 @@ void HttpSessionImpl<Client>::disconnect()
         throw beast::system_error{ec};
         // BOOST_THROW_EXCEPTION(ec);
     }
+    */
 }
 
-template <bool Client>
-HttpSessionImpl<Client>::~HttpSessionImpl()
+template <bool ssl, bool Client>
+HttpSessionImpl<ssl, Client>::~HttpSessionImpl()
 {
+    if (&_ctx == &_ctx_inner) {
+        _ctx.run();
+    }
     // disconnect();
 }
 
-template <bool Client>
-void HttpSessionImpl<Client>::setParam(const Http::UrlParam &url_param)
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::setParam(const Http::UrlParam &url_param)
 {
     _url_param = url_param;
 }
 
-template <bool Client>
-void HttpSessionImpl<Client>::setParam(const Http::HeadParam &head_param)
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::setParam(const Http::HeadParam &head_param)
 {
     _head_param = head_param;
 }
 
-template <bool Client>
-void HttpSessionImpl<Client>::setParam(const Http::StringBody &body)
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::setParam(const Http::StringBody &body)
 {
     _body = body;
 }
 
-template <bool Client>
-void HttpSessionImpl<Client>::setParam(const Http::RequestHandler &handler)
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::setParam(const ReadHandler &handler)
 {
-    if constexpr(Client) {
-        _write_handler = handler;
-    }
-    else {
-        _read_handler = handler;
-    }
+    _read_handler = handler;
 }
 
-template <bool Client>
-void HttpSessionImpl<Client>::setParam(const Http::ResponseHandler &handler)
-{
-    if constexpr(Client) {
-        _read_handler = handler;
-    }
-    else {
-        _write_handler = handler;
-    }
-}
-
-template <bool Client>
-void HttpSessionImpl<Client>::make_request()
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::make_request()
 {
     _req.set(http::field::host, _host);
     _req.set(http::field::user_agent, BOOST_BEAST_VERSION);
@@ -156,10 +169,13 @@ void HttpSessionImpl<Client>::make_request()
     }
 }
 
-template <bool Client>
-Http::Response HttpSessionImpl<Client>::request()
+template <bool ssl, bool Client>
+Http::Response HttpSessionImpl<ssl, Client>::request()
 {
-    Http::Response resp;
+    assert(!Client && "server should not call request");
+    // static_assert(!Client,  "server should not call request");
+    _buffer.clear();
+    _resp.clear();
     int retry = 0;
     if (_req.keep_alive()) {
         retry = 1;
@@ -167,13 +183,13 @@ Http::Response HttpSessionImpl<Client>::request()
     do {
         try {
             connect();
-            if (_enable_ssl) {
+            if constexpr(ssl) {
                 http::write(_ssl_stream, _req);
-                http::read(_ssl_stream, _buffer, resp);
+                http::read(_ssl_stream, _buffer, _resp);
             }
             else {
                 http::write(_stream, _req);
-                http::read(_stream, _buffer, resp);
+                http::read(_stream, _buffer, _resp);
             }
             break;
         }
@@ -188,8 +204,47 @@ Http::Response HttpSessionImpl<Client>::request()
             }
         }
     } while(retry >= 0);
-    return resp;
+    return std::move(_resp);
 }
 
-template class HttpSessionImpl<true>;
-template class HttpSessionImpl<false>;
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::async_request()
+{
+    if constexpr(Client) {
+        // _resp = Http::Response{};
+        _buffer.clear();
+        _resp.clear();
+        int retry = 0;
+        if (_req.keep_alive()) {
+            retry = 1;
+        }
+        do {
+            try {
+                if constexpr(ssl) {
+                    do_async(_ssl_stream);
+                }
+                else {
+                    do_async(_stream);
+                }
+                break;
+            }
+            catch (std::exception &e) {
+                CERR << e.what();
+                if (--retry >= 0) {
+                    reconnect();
+                }
+                else {
+                    BOOST_THROW_EXCEPTION(e);
+                    // throw;
+                }
+            }
+        } while(retry >= 0);
+    }
+}
+// client
+template class HttpSessionImpl<true, true>;
+template class HttpSessionImpl<false, true>;
+
+// server
+template class HttpSessionImpl<true, false>;
+template class HttpSessionImpl<false, false>;

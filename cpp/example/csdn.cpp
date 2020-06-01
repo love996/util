@@ -4,17 +4,18 @@ using namespace std;
 
 #include "http/http_session.h"
 
+void readHandler(const beast::error_code &, const Http::Response &resp)
+{
+    COUT << resp.body();
+}
+
 int main()
 {
-    // HttpSession client("www.baidu.com", 443, true);
-    HttpClient client("blog.csdn.net", 443, true);
-    
     try {
-        auto resp = client.get("/zww0815/article/details/51275266");
-        COUT << resp.body();
-        resp = client.get("/zww0815/article/details/51275266");
-        COUT << resp.body();
-        // client.disconnect();
+        net::io_context ctx;
+        auto client_ptr = std::make_shared<HttpsClient>(ctx, "blog.csdn.net", 443);
+        client_ptr->async_get("/zww0815/article/details/51275266", readHandler);
+        ctx.run();
     }
     catch (std::exception &e) {
         CERR << e.what();

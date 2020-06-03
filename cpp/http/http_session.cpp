@@ -147,9 +147,10 @@ void HttpSessionImpl<ssl, Client>::disconnect()
 template <bool ssl, bool Client>
 HttpSessionImpl<ssl, Client>::~HttpSessionImpl()
 {
-    if (&_ctx == &_inner_ctx) {
-        _ctx.run();
-    }
+    COUT << "disconnect";
+    // if (&_ctx == &_inner_ctx) {
+    //     _ctx.run();
+    // }
     // disconnect();
 }
 
@@ -183,7 +184,6 @@ void HttpSessionImpl<ssl, Client>::make_request()
     _req.set(http::field::host, _host);
     _req.set(http::field::user_agent, BOOST_BEAST_VERSION);
     _req.version(_version);
-    _req.method(http::verb::post);
     _req.keep_alive(_keep_alive);
     // head
     for (auto &[k, v] : _head_param) {
@@ -269,6 +269,7 @@ void HttpSessionImpl<ssl, Client>::do_response(const beast::error_code &ec, size
     auto iter = _handler_map_ptr->find(info);
     _resp = Http::Response{};
     if (iter == _handler_map_ptr->end()) {
+        CERR << _req.target() << ":" << _req.method();
         _resp.result(http::status::not_found);
         return;
     }
@@ -331,6 +332,7 @@ void HttpSessionImpl<ssl, Client>::do_async_request(Stream &stream)
 {   
     connect();
     auto self(this->shared_from_this());
+    COUT << _req.method() << ":" << http::verb::get << _req.target();
     beast::http::async_write(stream, _req, [self, this, &stream](beast::error_code const &ec, size_t s)
         {   
             if (ec) {
@@ -342,7 +344,8 @@ void HttpSessionImpl<ssl, Client>::do_async_request(Stream &stream)
             }   
             else {
                 COUT << "write bytes:" << s << "read http";
-            }   
+            }
+            _resp = Http::Response{};
             beast::http::async_read(stream, _buffer, _resp, [self, this](beast::error_code const &ec, size_t s)
                 {   
                     if (ec) {
@@ -350,6 +353,7 @@ void HttpSessionImpl<ssl, Client>::do_async_request(Stream &stream)
                         return;
                     }   
                     COUT << "read byte:" << s;
+                    COUT << "buffer:" << (const char*)_buffer.data().data();
                     self->_read_handler(ec, _resp);
                 }   
             );  

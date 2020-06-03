@@ -1,7 +1,7 @@
 #include "http_session.h"
-#include <boost/asio.hpp>
 #include <string>
 #include "util/output.h"
+#include "util/defer.h"
 
 
 using ErrorMsg = boost::error_info<struct tag_err_msg, std::string>;
@@ -11,7 +11,7 @@ HttpSessionImpl<ssl, Client>::HttpSessionImpl(const std::string &host, uint16_t 
     : _version{11}
     , _host(host)
     , _port(port)
-    , _ctx{_ctx_inner}
+    , _ctx{_inner_ctx}
     , _resolver(_ctx)
     , _stream(_ctx)
     , _keep_alive(true)
@@ -36,6 +36,41 @@ HttpSessionImpl<ssl, Client>::HttpSessionImpl(net::io_context &ctx, const std::s
 {
 }
 
+template <bool ssl, bool Client>
+HttpSessionImpl<ssl, Client>::HttpSessionImpl(tcp::socket &&socket)
+    : _version{11}
+    , _host(socket.local_endpoint().address().to_string())
+    , _port(socket.local_endpoint().port())
+    , _ctx{_inner_ctx}
+    , _resolver(_ctx)
+    , _stream(std::move(socket))
+    , _keep_alive(true)
+    , _connected(false)
+    , _ssl_ctx(ssl::context::tlsv12_client)
+    , _ssl_stream(_ctx, _ssl_ctx)
+{
+}
+
+template <bool ssl, bool Client>
+HttpSessionImpl<ssl, Client>::HttpSessionImpl(net::io_context &ctx, tcp::socket &&socket)
+    : _version{11}
+    , _host(socket.local_endpoint().address().to_string())
+    , _port(socket.local_endpoint().port())
+    , _ctx{ctx}
+    , _resolver(_ctx)
+    , _stream(std::move(socket))
+    , _keep_alive(true)
+    , _connected(false)
+    , _ssl_ctx(ssl::context::tlsv12_client)
+    , _ssl_stream(_ctx, _ssl_ctx)
+{
+}
+
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::register_handler(HandlerMapPtr ptr)
+{
+    _handler_map_ptr = ptr;
+}
 
 template <bool ssl, bool Client>
 void HttpSessionImpl<ssl, Client>::reconnect()
@@ -50,7 +85,7 @@ void HttpSessionImpl<true, true>::connect()
     if (_connected) return;
     auto const results = _resolver.resolve(_host, std::to_string(_port));
     _ssl_ctx.set_verify_mode(ssl::verify_none);
-    if(! SSL_set_tlsext_host_name(_ssl_stream.native_handle(), _host.c_str())) {   
+    if(! SSL_set_tlsext_host_name(_ssl_stream.native_handle(), _host.c_str())) {
         beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
         BOOST_THROW_EXCEPTION(HttpException() << ErrorMsg(ec.message()));
     }
@@ -72,6 +107,12 @@ template <bool ssl, bool Client>
 void HttpSessionImpl<ssl, Client>::connect()
 {
     assert(false && "server should not call connect");
+}
+
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::async_serve()
+{
+    response();
 }
 
 template <bool ssl, bool Client>
@@ -106,7 +147,7 @@ void HttpSessionImpl<ssl, Client>::disconnect()
 template <bool ssl, bool Client>
 HttpSessionImpl<ssl, Client>::~HttpSessionImpl()
 {
-    if (&_ctx == &_ctx_inner) {
+    if (&_ctx == &_inner_ctx) {
         _ctx.run();
     }
     // disconnect();
@@ -208,6 +249,48 @@ Http::Response HttpSessionImpl<ssl, Client>::request()
 }
 
 template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::do_response(const beast::error_code &ec, size_t s)
+{
+    if (ec) {
+        CERR << ec.message();
+        return;
+    }
+    COUT << "received len:" << s;
+    Defer f([this]
+        {
+            if constexpr(ssl) {
+                http::write(_ssl_stream, _resp);
+            }
+            else {
+                http::write(_stream, _resp);
+            }
+        });
+    Http::RouteInfo info{_req.target(), _req.method()};
+    auto iter = _handler_map_ptr->find(info);
+    _resp = Http::Response{};
+    if (iter == _handler_map_ptr->end()) {
+        _resp.result(http::status::not_found);
+        return;
+    }
+    _resp = iter->second(ec, _req);
+    _resp.result(http::status::ok);
+    response();
+}
+
+
+template <bool ssl, bool Client>
+void HttpSessionImpl<ssl, Client>::response()
+{
+    auto self(this->shared_from_this());
+    if constexpr(ssl) {
+        http::async_read(_ssl_stream, _buffer, _req, beast::bind_front_handler(&HttpSessionImpl::do_response, self));
+    }
+    else {
+        http::async_read(_stream, _buffer, _req, beast::bind_front_handler(&HttpSessionImpl::do_response, self));
+    }
+}
+
+template <bool ssl, bool Client>
 void HttpSessionImpl<ssl, Client>::async_request()
 {
     if constexpr(Client) {
@@ -221,10 +304,10 @@ void HttpSessionImpl<ssl, Client>::async_request()
         do {
             try {
                 if constexpr(ssl) {
-                    do_async(_ssl_stream);
+                    do_async_request(_ssl_stream);
                 }
                 else {
-                    do_async(_stream);
+                    do_async_request(_stream);
                 }
                 break;
             }
@@ -241,6 +324,38 @@ void HttpSessionImpl<ssl, Client>::async_request()
         } while(retry >= 0);
     }
 }
+
+template <bool ssl, bool Client>
+template <typename Stream>
+void HttpSessionImpl<ssl, Client>::do_async_request(Stream &stream)
+{   
+    connect();
+    auto self(this->shared_from_this());
+    beast::http::async_write(stream, _req, [self, this, &stream](beast::error_code const &ec, size_t s)
+        {   
+            if (ec) {
+                CERR << ec.message();
+                return;
+            }   
+            if constexpr(ssl) {
+                COUT << "write bytes:" << s << "read https";
+            }   
+            else {
+                COUT << "write bytes:" << s << "read http";
+            }   
+            beast::http::async_read(stream, _buffer, _resp, [self, this](beast::error_code const &ec, size_t s)
+                {   
+                    if (ec) {
+                        CERR << ec.message();
+                        return;
+                    }   
+                    COUT << "read byte:" << s;
+                    self->_read_handler(ec, _resp);
+                }   
+            );  
+        }); 
+}
+
 // client
 template class HttpSessionImpl<true, true>;
 template class HttpSessionImpl<false, true>;

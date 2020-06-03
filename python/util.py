@@ -65,15 +65,30 @@ def get_base_type(value):
 
 # 对subprocess.Popen的封装，返回执行结果
 def run_cmd(cmd, show=True, code="utf8"):
-    print("cmd:", cmd)
+    return __run_cmd(cmd, show, code)
+
+
+def __run_cmd(cmd, show=True, code="utf8"):
+    # print("cmd:", cmd)
     shell = not isinstance(cmd, list)
     # import pdb
     # pdb.set_trace()
-    print("shell:", shell)
-    process = subprocess.Popen(cmd, shell=shell, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # print("shell:", shell)
+    process = subprocess.Popen(
+            cmd,
+            shell=shell,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE)
     lines = []
+    retcode = 0
     while process.poll() is None:
         line = process.stdout.readline()
+        if not line:
+            line = process.stderr.readline()
+            if line:
+                e = line.decode(code, 'ignore')
+                print("error:[%s]" % e)
+                retcode = 1
         # line = line.strip()
         if line:
             line = line.decode(code, 'ignore')
@@ -81,7 +96,13 @@ def run_cmd(cmd, show=True, code="utf8"):
                 print(line, end="")
             lines.append(line)
         else:
+            # print("break")
             break
+    # None
+    # print("returncode:", process.returncode)
+    lines.append(retcode)
+    process.stdout.close()
+    process.stderr.close()
     return lines
 
 

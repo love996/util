@@ -14,8 +14,14 @@ class TestDict(unittest.TestCase):
         print("testDown ...")
 
     def test_cmd(self):
-        self.assertIsNotNone(run_cmd(['ping', 'www.baidu.com', '-c', '3']))
-        self.assertIsNotNone(run_cmd("ping www.baidu.com -c 3"))
+        ret = run_cmd(['ping', 'www.baidu.com', '-c', '3'])
+        self.assertIsNotNone(ret)
+        retcode = ret[-1]
+        print("retcode:", retcode)
+        ret = run_cmd("ping www.baidu.com1 -c 3")
+        self.assertIsNotNone(ret)
+        retcode = ret[-1]
+        print("retcode:", retcode)
         # run_cmd("https://github.com/yixuehan/study.git", ["--depth=1")
 
 

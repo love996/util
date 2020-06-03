@@ -1,11 +1,8 @@
+#pragma once
 #include <boost/beast.hpp>
 #include <spdlog/spdlog.h>
 #include "common/exception.h"
-
-namespace beast = boost::beast;
-namespace http = beast::http;
-namespace net = boost::asio;
-namespace ssl = net::ssl;
+#include "common/net.h"
 
 class HttpException : public virtual Exception
 {
@@ -18,7 +15,7 @@ namespace Http
     void convert(std::string &v);
     using Request = boost::beast::http::request<boost::beast::http::string_body>;
     using Response = boost::beast::http::response<boost::beast::http::string_body>;
-    using RequestHandler = std::function<void (beast::error_code const&, const Request &)>;
+    using RequestHandler = std::function<Response (beast::error_code const&, const Request &)>;
     using ResponseHandler = std::function<void (beast::error_code const&, const Response &)>;
 
     struct Param : public std::map<std::string, std::string>
@@ -49,4 +46,14 @@ namespace Http
     struct HeadParam : public Param
     {};
     using StringBody = std::string;
+
+    struct RouteInfo
+    {   
+        beast::string_view path;
+        http::verb method;
+        bool operator<(const RouteInfo &o) const
+        {   
+            return (this->path < o.path) || (this->path == o.path && this->method < o.method);
+        }   
+    };
 }

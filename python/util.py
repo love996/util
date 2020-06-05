@@ -4,6 +4,8 @@
 import os
 import json5
 import subprocess
+import hashlib
+import shutil
 
 
 def readjson(filename):
@@ -112,3 +114,19 @@ def unique(obj_list):
         if obj not in r:
             r.append(obj)
     return r
+
+
+def copy_file(src_file, dst_file):
+    assert_file(src_file)
+    file1 = open(src_file, "rb")
+    if not os.path.exists(dst_file):
+        os.makedirs(os.path.dirname(dst_file))
+        shutil.copyfile(src_file, dst_file)
+        return
+    file2 = open(dst_file, "rb")
+    m1 = hashlib.md5()
+    m2 = hashlib.md5()
+    m1.update(file1.read())
+    m2.update(file2.read())
+    if m1.digest() != m2.digest():
+        shutil.copyfile(src_file, dst_file)

@@ -28,8 +28,14 @@ def abs_path(path):
 
 
 def assert_file(filename):
-    if not os.path.exists(filename):
+    if not os.path.isfile(filename):
         print("file [%s] not exist" % (filename))
+        assert False
+
+
+def assert_dir(dirname):
+    if not os.path.isdir(dirname):
+        print("dir [%s] not exist" % (dirname))
         assert False
 
 
@@ -116,19 +122,49 @@ def unique(obj_list):
     return r
 
 
+def md5(filename):
+    if os.path.isfile(filename):
+        md5obj = hashlib.md5()
+        maxbuf = 8192
+        f = open(filename, 'rb')
+        while True:
+            buf = f.read(maxbuf)
+            if not buf:
+                break
+            md5obj.update(buf)
+        f.close()
+        h = md5obj.hexdigest()
+        return str(h).upper()
+    print("[%s] is not a file" % filename)
+    assert False
+
+
 def copy_file(src_file, dst_file):
     assert_file(src_file)
-    file1 = open(src_file, "rb")
     if not os.path.exists(dst_file):
         dirname = os.path.dirname(dst_file)
         if not os.path.exists(dirname):
             os.makedirs(dirname)
         shutil.copyfile(src_file, dst_file)
         return
-    file2 = open(dst_file, "rb")
-    m1 = hashlib.md5()
-    m2 = hashlib.md5()
-    m1.update(file1.read())
-    m2.update(file2.read())
-    if m1.digest() != m2.digest():
+    else:
+        assert_file(dst_file)
+    m1 = md5(src_file)
+    m2 = md5(dst_file)
+    assert m1 and m2
+    if m1 != m2:
         shutil.copyfile(src_file, dst_file)
+
+
+def copy_dir(src_dir, dst_dir):
+    assert_dir(src_dir)
+    if not os.path.exists(dst_dir):
+        os.makedirs(dst_dir)
+    for f in os.listdir(src_dir):
+        if os.path.isfile(f):
+            copy_file(os.path.join(src_dir, f), os.path.join(dst_dir, f))
+        elif os.path.isdir(f):
+            copy_dir(os.path.join(src_dir, f), os.path.join(dst_dir, f))
+        else:
+            print("error file [%s]" % (f))
+            assert False

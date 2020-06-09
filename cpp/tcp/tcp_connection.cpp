@@ -49,9 +49,9 @@ void TcpConnection::async_wait_write(WaitHandler cb)
     _socket.async_wait(tcp::socket::wait_write, cb);
 }
 
-void TcpConnection::write(const std::byte *data, size_t length)
+size_t TcpConnection::write(const std::byte *data, size_t length)
 {
-    net::write(_socket, net::buffer(data, length));
+    return net::write(_socket, net::buffer(data, length));
 }
 
 void TcpConnection::async_write(const std::byte *data, size_t length, WriteHandler cb)
@@ -60,9 +60,9 @@ void TcpConnection::async_write(const std::byte *data, size_t length, WriteHandl
     net::async_write(_socket, net::buffer(data, length), cb);
 }
 
-void TcpConnection::read(std::byte *data, size_t length)
+size_t TcpConnection::read(std::byte *data, size_t length)
 {
-    net::read(_socket, net::buffer(data, length));
+    return net::read(_socket, net::buffer(data, length));
 }
 
 void TcpConnection::async_read(std::byte *data, size_t length, ReadHandler cb)

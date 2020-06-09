@@ -326,10 +326,20 @@ void HttpSessionImpl<ssl, Client>::async_request()
     }
 }
 
+template <>
+void HttpSessionImpl<true, false>::do_async_request(StreamType &stream)
+{
+}
+
+template <>
+void HttpSessionImpl<false, false>::do_async_request(StreamType &stream)
+{
+}
+
+
 template <bool ssl, bool Client>
-template <typename Stream>
-void HttpSessionImpl<ssl, Client>::do_async_request(Stream &stream)
-{   
+void HttpSessionImpl<ssl, Client>::do_async_request(StreamType &stream)
+{
     connect();
     auto self(this->shared_from_this());
     COUT << _req.method() << ":" << http::verb::get << _req.target();
@@ -360,6 +370,8 @@ void HttpSessionImpl<ssl, Client>::do_async_request(Stream &stream)
         }); 
 }
 
+// template<> void HttpSessionImpl<true, true>::do_async<beast::ssl_stream<beast::tcp_stream>>(beast::ssl_stream<beast::tcp_stream> &);
+
 // client
 template class HttpSessionImpl<true, true>;
 template class HttpSessionImpl<false, true>;
@@ -367,3 +379,4 @@ template class HttpSessionImpl<false, true>;
 // server
 template class HttpSessionImpl<true, false>;
 template class HttpSessionImpl<false, false>;
+

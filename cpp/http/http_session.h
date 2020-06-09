@@ -49,7 +49,7 @@ public:
     HttpSessionImpl(tcp::socket &&socket);
     ~HttpSessionImpl();
 
-    // 做server 端
+    // server 端
     void register_handler(HandlerMapPtr ptr);
 
     HTTP_METHOD(get)
@@ -100,9 +100,12 @@ private:
     Http::HeadParam _head_param;
     Http::Request _req;
     Http::Response _resp;
+    Http::FileResponse _file_resp;
     // ssl
     net::ssl::context _ssl_ctx;
     beast::ssl_stream<beast::tcp_stream> _ssl_stream;
+
+    using StreamType = std::conditional_t<ssl, beast::ssl_stream<beast::tcp_stream>, beast::tcp_stream>;
 
     // is_client;
     using ReadHandler = std::conditional_t<Client, Http::ResponseHandler, Http::RequestHandler>;
@@ -124,8 +127,7 @@ private:
     void setParam(const Http::StringBody &body);
     void setParam(const ReadHandler &handler);
 
-    template <typename Stream>
-    void do_async_request(Stream &stream);
+    void do_async_request(StreamType &stream);
 
     void do_response(const beast::error_code &ec, size_t s);
 };

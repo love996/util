@@ -13,8 +13,9 @@ namespace Http
 {
     // 转义一些http请求中的特殊字符
     void convert(std::string &v);
-    using Request = boost::beast::http::request<boost::beast::http::string_body>;
-    using Response = boost::beast::http::response<boost::beast::http::string_body>;
+    using Request = http::request<http::string_body>;
+    using Response = http::response<http::string_body>;
+    using FileResponse = http::response<http::file_body>;
     using RequestHandler = std::function<Response (beast::error_code const&, const Request &)>;
     using ResponseHandler = std::function<void (beast::error_code const&, const Response &)>;
 

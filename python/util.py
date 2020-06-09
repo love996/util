@@ -151,6 +151,7 @@ def copy_file(src_file, dst_file):
         assert_file(dst_file)
     m1 = md5(src_file)
     m2 = md5(dst_file)
+    print("[%s][%s]:[%s][%s]" % (src_file, m1, dst_file, m2))
     assert m1 and m2
     if m1 != m2:
         shutil.copyfile(src_file, dst_file)

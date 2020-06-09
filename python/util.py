@@ -161,10 +161,12 @@ def copy_dir(src_dir, dst_dir):
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
     for f in os.listdir(src_dir):
-        if os.path.isfile(f):
-            copy_file(os.path.join(src_dir, f), os.path.join(dst_dir, f))
-        elif os.path.isdir(f):
-            copy_dir(os.path.join(src_dir, f), os.path.join(dst_dir, f))
+        src_file = os.path.join(src_dir, f)
+        dst_file = os.path.join(dst_dir, f)
+        if os.path.isfile(src_file):
+            copy_file(src_file, dst_file)
+        elif os.path.isdir(src_file):
+            copy_dir(src_file, dst_file)
         else:
             print("error file [%s]" % (f))
             assert False

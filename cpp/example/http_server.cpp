@@ -1,12 +1,12 @@
 #include "http/http_server.h"
 
 #include "util/output.h"
-Http::Response hello(const beast::error_code &ec, const Http::Request &req)
+Http::StringResponse hello(const beast::error_code &ec, const Http::StringRequest &req)
 {
     if (ec) {
         CERR << ec.message();
     }
-    Http::Response resp{http::status::ok, req.version()};
+    Http::StringResponse resp{http::status::ok, req.version()};
     resp.body() = "hello";
     resp.prepare_payload();
     return resp;

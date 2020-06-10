@@ -1,4 +1,4 @@
-#include "http_session.h"
+// #include "http_session.h"
 #include <string>
 #include "util/output.h"
 #include "util/defer.h"
@@ -79,34 +79,29 @@ void HttpSessionImpl<ssl, Client>::reconnect()
     connect();
 }
 
-template <>
-void HttpSessionImpl<true, true>::connect()
-{
-    if (_connected) return;
-    auto const results = _resolver.resolve(_host, std::to_string(_port));
-    _ssl_ctx.set_verify_mode(ssl::verify_none);
-    if(! SSL_set_tlsext_host_name(_ssl_stream.native_handle(), _host.c_str())) {
-        beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
-        BOOST_THROW_EXCEPTION(HttpException() << ErrorMsg(ec.message()));
-    }
-    beast::get_lowest_layer(_ssl_stream).connect(results);
-    _ssl_stream.handshake(ssl::stream_base::client);
-    _connected = true;
-}
-
-template <>
-void HttpSessionImpl<false, true>::connect()
-{
-    if (_connected) return;
-    auto const results = _resolver.resolve(_host, std::to_string(_port));
-    _stream.connect(results);
-}
-
-
 template <bool ssl, bool Client>
 void HttpSessionImpl<ssl, Client>::connect()
 {
-    assert(false && "server should not call connect");
+    if constexpr(!Client) {
+        assert(false && "server should not call connect");
+    }
+    else if constexpr(ssl) {
+        if (_connected) return;
+        auto const results = _resolver.resolve(_host, std::to_string(_port));
+        _ssl_ctx.set_verify_mode(ssl::verify_none);
+        if(! SSL_set_tlsext_host_name(_ssl_stream.native_handle(), _host.c_str())) {
+            beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
+            BOOST_THROW_EXCEPTION(HttpException() << ErrorMsg(ec.message()));
+        }
+        beast::get_lowest_layer(_ssl_stream).connect(results);
+        _ssl_stream.handshake(ssl::stream_base::client);
+        _connected = true;
+    }
+    else {
+        if (_connected) return;
+        auto const results = _resolver.resolve(_host, std::to_string(_port));
+        _stream.connect(results);
+    }
 }
 
 template <bool ssl, bool Client>
@@ -173,12 +168,6 @@ void HttpSessionImpl<ssl, Client>::setParam(const Http::StringBody &body)
 }
 
 template <bool ssl, bool Client>
-void HttpSessionImpl<ssl, Client>::setParam(const ReadHandler &handler)
-{
-    _read_handler = handler;
-}
-
-template <bool ssl, bool Client>
 void HttpSessionImpl<ssl, Client>::make_request()
 {
     _req.set(http::field::host, _host);
@@ -211,12 +200,12 @@ void HttpSessionImpl<ssl, Client>::make_request()
 }
 
 template <bool ssl, bool Client>
-Http::Response HttpSessionImpl<ssl, Client>::request()
+template <typename Body>
+void HttpSessionImpl<ssl, Client>::request(http::response<Body> &resp)
 {
     assert(!Client && "server should not call request");
     // static_assert(!Client,  "server should not call request");
     _buffer.clear();
-    _resp.clear();
     int retry = 0;
     if (_req.keep_alive()) {
         retry = 1;
@@ -226,11 +215,11 @@ Http::Response HttpSessionImpl<ssl, Client>::request()
             connect();
             if constexpr(ssl) {
                 http::write(_ssl_stream, _req);
-                http::read(_ssl_stream, _buffer, _resp);
+                http::read(_ssl_stream, _buffer, resp);
             }
             else {
                 http::write(_stream, _req);
-                http::read(_stream, _buffer, _resp);
+                http::read(_stream, _buffer, resp);
             }
             break;
         }
@@ -245,7 +234,6 @@ Http::Response HttpSessionImpl<ssl, Client>::request()
             }
         }
     } while(retry >= 0);
-    return std::move(_resp);
 }
 
 template <bool ssl, bool Client>
@@ -256,18 +244,18 @@ void HttpSessionImpl<ssl, Client>::do_response(const beast::error_code &ec, size
         return;
     }
     COUT << "received len:" << s;
+    Http::Response resp;
     Defer f([this]
         {
             if constexpr(ssl) {
-                http::write(_ssl_stream, _resp);
+                http::write(_ssl_stream, resp);
             }
             else {
-                http::write(_stream, _resp);
+                http::write(_stream, resp);
             }
         });
     Http::RouteInfo info{_req.target(), _req.method()};
     auto iter = _handler_map_ptr->find(info);
-    _resp = Http::Response{};
     if (iter == _handler_map_ptr->end()) {
         CERR << _req.target() << ":" << _req.method();
         _resp.result(http::status::not_found);
@@ -292,24 +280,22 @@ void HttpSessionImpl<ssl, Client>::response()
 }
 
 template <bool ssl, bool Client>
-void HttpSessionImpl<ssl, Client>::async_request()
+template <typename Handler>
+void HttpSessionImpl<ssl, Client>::async_request(StreamType &stream, const Handler &handler)
 {
-    if constexpr(Client) {
+    if (!Client) {
+    }
+    else if constexpr(Client) {
         // _resp = Http::Response{};
         _buffer.clear();
-        _resp.clear();
+        // _resp.clear();
         int retry = 0;
         if (_req.keep_alive()) {
             retry = 1;
         }
         do {
             try {
-                if constexpr(ssl) {
-                    do_async_request(_ssl_stream);
-                }
-                else {
-                    do_async_request(_stream);
-                }
+                do_async_request(stream, handler);
                 break;
             }
             catch (std::exception &e) {
@@ -326,37 +312,23 @@ void HttpSessionImpl<ssl, Client>::async_request()
     }
 }
 
-template <>
-void HttpSessionImpl<true, false>::do_async_request(StreamType &stream)
-{
-}
-
-template <>
-void HttpSessionImpl<false, false>::do_async_request(StreamType &stream)
-{
-}
-
-
 template <bool ssl, bool Client>
-void HttpSessionImpl<ssl, Client>::do_async_request(StreamType &stream)
+template <typename Body>
+void HttpSessionImpl<ssl, Client>::do_async_request(StreamType &stream, const Http::ResponesHandler<Body> &handler)
 {
     connect();
     auto self(this->shared_from_this());
     COUT << _req.method() << ":" << http::verb::get << _req.target();
-    beast::http::async_write(stream, _req, [self, this, &stream](beast::error_code const &ec, size_t s)
+    beast::http::async_write(stream, _req, [handler, self, this, &stream](beast::error_code const &ec, size_t s)
         {   
             if (ec) {
                 CERR << ec.message();
                 return;
             }   
-            if constexpr(ssl) {
-                COUT << "write bytes:" << s << "read https";
-            }   
-            else {
-                COUT << "write bytes:" << s << "read http";
-            }
-            _resp = Http::Response{};
-            beast::http::async_read(stream, _buffer, _resp, [self, this](beast::error_code const &ec, size_t s)
+            COUT << "write byte:" << s;
+            auto resp_ptr = std::make_shared<http::response<Body>>();
+            auto &resp = std::get<http::response<Body>&>(std::tuple(_file_resp, _string_resp));
+            beast::http::async_read(stream, _buffer, resp, [handler, self, &resp, this](beast::error_code const &ec, size_t s)
                 {   
                     if (ec) {
                         CERR << ec.message();
@@ -364,7 +336,8 @@ void HttpSessionImpl<ssl, Client>::do_async_request(StreamType &stream)
                     }   
                     COUT << "read byte:" << s;
                     COUT << "buffer:" << (const char*)_buffer.data().data();
-                    self->_read_handler(ec, _resp);
+                    handler(ec, resp);
+                    // self->_read_handler(ec, resp_ptr);
                 }   
             );  
         }); 
@@ -373,10 +346,10 @@ void HttpSessionImpl<ssl, Client>::do_async_request(StreamType &stream)
 // template<> void HttpSessionImpl<true, true>::do_async<beast::ssl_stream<beast::tcp_stream>>(beast::ssl_stream<beast::tcp_stream> &);
 
 // client
-template class HttpSessionImpl<true, true>;
-template class HttpSessionImpl<false, true>;
-
-// server
-template class HttpSessionImpl<true, false>;
-template class HttpSessionImpl<false, false>;
+// template class HttpSessionImpl<true, true>;
+// template class HttpSessionImpl<false, true>;
+// 
+// // server
+// template class HttpSessionImpl<true, false>;
+// template class HttpSessionImpl<false, false>;
 

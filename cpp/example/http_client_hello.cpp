@@ -8,7 +8,7 @@ using namespace std;
 
 // #include "log/log.h"
 
-void read_handler(beast::error_code const &, Http::Response const &resp)
+void read_handler(beast::error_code const &, Http::StringResponse const &resp)
 {
     COUT << resp.body();
 }
@@ -16,7 +16,7 @@ void read_handler(beast::error_code const &, Http::Response const &resp)
 int main()
 {
     net::io_context ctx;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 8000; ++i) {
         auto test_ptr = std::make_shared<HttpClient>(ctx, "192.168.5.128", 12345);
         test_ptr->async_get("/hello", read_handler);
     }

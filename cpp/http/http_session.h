@@ -17,10 +17,16 @@
 
 #define SYNC_HTTP_METHOD(method) \
     template <typename ...Args> \
-    Http::Response method(const std::string &target, const Args &...args) \
+    void method(const std::string &target, const Args &...args) \
     {   \
+        static_assert(!(contains<Http::StringResponse&, Args...>::value && \
+                      contains<Http::FileResponse&, Args...>::value), \
+                      "only need one response type" ); \
+        static_assert(contains<Http::StringResponse&, Args...>::value || \
+                      contains<Http::FileResponse&, Args...>::value, \
+                      "need a response" ); \
         _req = Http::Request{http::verb::method, target, _version}; \
-        return request_proxy(target, args...); \
+        request_proxy(target, args...); \
     }
 
 #define ASYNC_HTTP_METHOD(method) \
@@ -36,8 +42,8 @@
     SYNC_HTTP_METHOD(method) \
     ASYNC_HTTP_METHOD(method)
 
-using HandlerMap = std::map<Http::RouteInfo, Http::RequestHandler>;
-using HandlerMapPtr = std::shared_ptr<std::map<Http::RouteInfo, Http::RequestHandler>>;
+using HandlerMap = std::map<Http::RouteInfo, Http::StringRequestHandler>;
+using HandlerMapPtr = std::shared_ptr<std::map<Http::RouteInfo, Http::StringRequestHandler>>;
 
 template <bool ssl, bool Client>
 class HttpSessionImpl: public std::enable_shared_from_this<HttpSessionImpl<ssl, Client>>
@@ -69,17 +75,31 @@ private:
     }
 
     template <typename ...Args>
-    Http::Response request_proxy(const std::string &target, const Args &...args)
+    void request_proxy(const std::string &target, const Args &...args)
     {
         make_request_proxy(target, args...);
-        return request();
+        std::tuple<Args &...> t(args...);
+        if constexpr(contains<Http::FileResponse, Args...>::value) {
+            auto &resp = std::get<Http::FileResponse&>(t);
+            request(resp);
+        }
+        else if constexpr(contains<Http::StringResponse, Args...>::value) {
+            auto &resp = std::get<Http::StringResponse&>(t);
+            request(resp);
+        }
     }
 
     template <typename ...Args>
     void async_request_proxy(const std::string &target, const Args &...args)
     {
         make_request_proxy(target, args...);
-        async_request();
+        auto &handler = std::get<sizeof...(args)>(args...);
+        if constexpr(ssl) {
+            async_request(_ssl_stream, handler);
+        }
+        else {
+            async_request(_stream, handler);
+        }
     }
 
 
@@ -98,8 +118,8 @@ private:
     Http::UrlParam _url_param;
     Http::StringBody _body;
     Http::HeadParam _head_param;
-    Http::Request _req;
-    Http::Response _resp;
+    Http::StringRequest _req;
+    Http::StringResponse _string_resp;
     Http::FileResponse _file_resp;
     // ssl
     net::ssl::context _ssl_ctx;
@@ -107,10 +127,9 @@ private:
 
     using StreamType = std::conditional_t<ssl, beast::ssl_stream<beast::tcp_stream>, beast::tcp_stream>;
 
-    // is_client;
-    using ReadHandler = std::conditional_t<Client, Http::ResponseHandler, Http::RequestHandler>;
-    ReadHandler _read_handler;
-
+    template <typename Body>
+    using ResponseHandler = std::function<void (beast::error_code &, http::response<Body> &)>;
+    
     HandlerMapPtr _handler_map_ptr;
     
 private:
@@ -118,19 +137,24 @@ private:
     void connect();
     void disconnect();
     void make_request() ;
-    Http::Response request();
+    template <typename Body>
+    void request(http::response<Body> &);
     void response();
-    void async_request();
+    template <typename Body>
+    void async_request(StreamType &stream, const Http::ResponseHandler<Body> &hander);
 
     void setParam(const Http::UrlParam &url_param);
     void setParam(const Http::HeadParam &url_param);
     void setParam(const Http::StringBody &body);
-    void setParam(const ReadHandler &handler);
+    // void setParam(const ReadHandler &handler);
 
-    void do_async_request(StreamType &stream);
+    template <typename Handler>
+    void do_async_request(StreamType &stream, const Handler &handler);
 
     void do_response(const beast::error_code &ec, size_t s);
 };
+
+#include "http_session.ipp"
 
 // http
 using HttpSession = HttpSessionImpl<false, false>;

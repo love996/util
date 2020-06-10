@@ -1,27 +1,13 @@
 #pragma once
 #include "http_common.h"
 
-/*
 #define SYNC_HTTP_METHOD(method) \
-    template <typename ...Args> \
-    Http::Response method(const std::string &target, const Args &...args) \
-    {   \
-        _req = Http::Request{http::verb::method, target, _version}; \
-        return request_proxy(target, args...); \
+    template <typename ReqBody, typename RespBody> \
+    void async_##method(beast::string_view path, const Http::RequestHandler<ReqBody, RespBody> &handler) \
+    { \
     }
-
-#define ASYNC_HTTP_METHOD(method) \
-    template <typename ...Args> \
-    void async_##method(const std::string &target, const Args &...args) \
-    {   \
-        _req = Http::Request{http::verb::method, target, _version}; \
-        async_request_proxy(target, args...); \
-    }
-*/
-
 
 #define HTTP_METHOD(method) \
-    SYNC_HTTP_METHOD(method) \
     ASYNC_HTTP_METHOD(method)
 
 template <bool ssl>
@@ -34,8 +20,10 @@ public:
     HttpServerImpl(net::io_context &ctx, const std::string &host, uint16_t port);
     HttpServerImpl(net::io_context &ctx, uint16_t port);
 
-    void get(beast::string_view path, const Http::RequestHandler &handler);
-    void post(beast::string_view path, const Http::RequestHandler &handler);
+    template <typename ReqBody, typename RespBody>
+    void get(beast::string_view path, const Http::RequestHandler<ReqBody, RespBody> &handler)
+    {
+    }
     void run();
     ~HttpServerImpl();
 private:

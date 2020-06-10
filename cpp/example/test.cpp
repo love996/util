@@ -8,7 +8,7 @@ using namespace std;
 
 // #include "log/log.h"
 
-void read_handler(beast::error_code const &, Http::Response const &resp)
+void read_handler(beast::error_code const &, Http::StringResponse const &resp)
 {
     COUT << resp.body();
 }

@@ -13,11 +13,18 @@ namespace Http
 {
     // 转义一些http请求中的特殊字符
     void convert(std::string &v);
-    using Request = http::request<http::string_body>;
-    using Response = http::response<http::string_body>;
+    using StringRequest = http::request<http::string_body>;
+    // using StringRequest = http::request<http::string_body>;
+    using StringResponse = http::response<http::string_body>;
     using FileResponse = http::response<http::file_body>;
-    using RequestHandler = std::function<Response (beast::error_code const&, const Request &)>;
-    using ResponseHandler = std::function<void (beast::error_code const&, const Response &)>;
+
+    template <typename ReqBody, typename RespBody>
+    using RequestHandler = std::function<http::response<RespBody> (beast::error_code const&, const http::request<ReqBody>&)>;
+
+    template <typename Body>
+    using ResponseHandler = std::function<void (beast::error_code const&, const http::response<Body>&)>;
+    using StringResponseHandler = ResponseHandler<http::string_body>;
+    using FileResponseHandler = ResponseHandler<http::file_body>;
 
     struct Param : public std::map<std::string, std::string>
     {

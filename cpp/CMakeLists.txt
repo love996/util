@@ -1,8 +1,8 @@
 project(http)
 set(CMAKE_CXX_COMPILER ccache)
 set(CMAKE_CXX_COMPILER_ARG1 g++)
-add_compile_options(-std=c++1z -ggdb3)
-#add_compile_options(-std=c++1z -O3)
+#add_compile_options(-std=c++1z -ggdb3)
+add_compile_options(-std=c++1z -O3)
 
 aux_source_directory(common COMMON)
 aux_source_directory(http HTTP)

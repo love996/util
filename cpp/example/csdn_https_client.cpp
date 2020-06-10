@@ -4,7 +4,7 @@ using namespace std;
 
 #include "http/http_session.h"
 
-void readHandler(const beast::error_code &, const Http::Response &resp)
+void readHandler(const beast::error_code &, const Http::StringResponse &resp)
 {
     COUT << resp.body();
 }

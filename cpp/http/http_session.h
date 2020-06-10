@@ -42,8 +42,8 @@
     SYNC_HTTP_METHOD(method) \
     ASYNC_HTTP_METHOD(method)
 
-using HandlerMap = std::map<Http::RouteInfo, Http::StringRequestHandler>;
-using HandlerMapPtr = std::shared_ptr<std::map<Http::RouteInfo, Http::StringRequestHandler>>;
+using HandlerMap = std::map<Http::RouteInfo, Http::RequestHandler>;
+using HandlerMapPtr = std::shared_ptr<HandlerMap>;
 
 template <bool ssl, bool Client>
 class HttpSessionImpl: public std::enable_shared_from_this<HttpSessionImpl<ssl, Client>>
@@ -118,17 +118,19 @@ private:
     Http::UrlParam _url_param;
     Http::StringBody _body;
     Http::HeadParam _head_param;
-    Http::StringRequest _req;
-    Http::StringResponse _string_resp;
-    Http::FileResponse _file_resp;
+
+    // 
+    Http::Request _req;
+    Http::Response _resp;
+    // Http::FileResponse _file_resp;
     // ssl
     net::ssl::context _ssl_ctx;
     beast::ssl_stream<beast::tcp_stream> _ssl_stream;
 
     using StreamType = std::conditional_t<ssl, beast::ssl_stream<beast::tcp_stream>, beast::tcp_stream>;
 
-    template <typename Body>
-    using ResponseHandler = std::function<void (beast::error_code &, http::response<Body> &)>;
+    // template <typename Body>
+    // using ResponseHandler = std::function<void (beast::error_code &, http::response<Body> &)>;
     
     HandlerMapPtr _handler_map_ptr;
     
@@ -137,19 +139,19 @@ private:
     void connect();
     void disconnect();
     void make_request() ;
-    template <typename Body>
-    void request(http::response<Body> &);
+    // template <typename Body>
+    void request(Http::Response &);
     void response();
-    template <typename Body>
-    void async_request(StreamType &stream, const Http::ResponseHandler<Body> &hander);
+    // template <typename Body>
+    void async_request(StreamType &stream, const Http::ResponseHandler &hander);
 
     void setParam(const Http::UrlParam &url_param);
     void setParam(const Http::HeadParam &url_param);
     void setParam(const Http::StringBody &body);
     // void setParam(const ReadHandler &handler);
 
-    template <typename Handler>
-    void do_async_request(StreamType &stream, const Handler &handler);
+   //  template <typename Handler>
+    void do_async_request(StreamType &stream, const Http::ResponseHandler &handler);
 
     void do_response(const beast::error_code &ec, size_t s);
 };

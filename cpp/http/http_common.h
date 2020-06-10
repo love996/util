@@ -1,4 +1,5 @@
 #pragma once
+#include <variant>
 #include <boost/beast.hpp>
 #include <spdlog/spdlog.h>
 #include "common/exception.h"
@@ -17,14 +18,16 @@ namespace Http
     // using StringRequest = http::request<http::string_body>;
     using StringResponse = http::response<http::string_body>;
     using FileResponse = http::response<http::file_body>;
+    using Response = std::variant<StringResponse, FileResponse>;
 
-    template <typename ReqBody, typename RespBody>
-    using RequestHandler = std::function<http::response<RespBody> (beast::error_code const&, const http::request<ReqBody>&)>;
 
-    template <typename Body>
-    using ResponseHandler = std::function<void (beast::error_code const&, const http::response<Body>&)>;
+    using ResponseHandler = std::function<void (beast::error_code const&, const Response&)>;
     using StringResponseHandler = ResponseHandler<http::string_body>;
     using FileResponseHandler = ResponseHandler<http::file_body>;
+
+    using Request = std::variant<StringRequest>;
+
+    using RequestHandler = std::function<Response (beast::error_code const&, Request &)>;
 
     struct Param : public std::map<std::string, std::string>
     {

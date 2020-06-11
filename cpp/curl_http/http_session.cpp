@@ -48,13 +48,54 @@ HttpSessionImpl::~HttpSessionImpl()
 
 void HttpSessionImpl::setParam(const Http::UrlParam &url_param)
 {
-    _url_param = url_param;
+    std::string str_param;
+    auto curl = _curl_ptr.get();
+    // url_param
+    for (auto &[k, v] : url_param) {
+        str_param += "&";
+        str_param += k;
+        str_param += "=";
+        auto convert_v = curl_easy_escape(curl, v.c_str(), v.size());
+        if (convert_v) {
+            str_param += convert_v;
+            curl_free(convert_v);
+        }
+        else {
+            COUT << "convert error:" << v;
+        }
+    }
+    if (str_param.size() > 0) {
+        str_param[0] = '?';
+    }
+    auto final_target = _target + url_param;
+    curl_easy_setopt(curl, CURLOPT_URL, final_target.c_str());
 }
 
 
 void HttpSessionImpl::setParam(const Http::HeadParam &head_param)
 {
-    _head_param = head_param;
+    struct curl_slist *header_list = nullptr;
+    struct curl_slist *header_line = nullptr;
+    Defer f([&]{
+        if (header_list) {
+            curl_slist_free_all(header_list);
+        }
+    });
+    // header
+    for (auto &[k, v] : head_param) {
+        snprintf(_buffer, sizeof(_buffer), "%s:%s", k.c_str(), v.c_str());
+        header_line = curl_slist_append(header_list, _buffer);
+        if (header_line) {
+            header_list = header_line;
+        }
+        else {
+            CERR << "make header error";
+            return;
+        }
+    }
+    auto curl = _curl_ptr.get();
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
+
 }
 
 void HttpSessionImpl::setParam(const Http::FormDataParam &form_data_param)
@@ -75,30 +116,14 @@ void HttpSessionImpl::setParam(Http::Response &resp)
 
 void HttpSessionImpl::make_request(const std::string &target)
 {
-    std::string url_param;
-    std::string head_param;
-    for (auto &[k, v] : _head_param) {
-        url_param
-    }
 
-    // url_param
-    for (auto &[k, v] : _url_param) {
-        param += "&";
-        param += k;
-        param += "=";
-        Http::convert(v);
-        param += v;
-    }
-    if (param.size() > 0) {
-        param[0] = '?';
-    }
-    auto final_target = target + param;
+
+    // body
 
     if (_body.size()) {
         _req.set(http::field::body, _body);
         _req.prepare_payload();
     }
-    auto curl = _curl_ptr.get();
 
     curl_easy_setopt(curl, CURLOPT_URL, final_target.c_str());
     // curl_easy_setopt(curl, CURLOPT_HEADER, 1);
@@ -194,9 +219,9 @@ void HttpSessionImpl::async_request(StreamType &stream, const Handler &handler)
 }
 
 
-size_t HttpSessionImpl::onHeadRead(char *buf, size_t size, size_t n, void *lp)
+size_t HttpSessionImpl::onHeadResponse(char *buf, size_t size, size_t n, void *lp)
 {
 }
-size_t HttpSessionImpl::onBodyRead(char *buf, size_t size, size_t n, void *lp)
+size_t HttpSessionImpl::onBodyResponse(char *buf, size_t size, size_t n, void *lp)
 {
 }

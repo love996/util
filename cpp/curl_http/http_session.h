@@ -68,6 +68,7 @@ private:
     {
         static_assert((contains<Http::StringBody, Args...>::value + contains<Http::FormDataParam, Args...>::value) <= 1,
                       "too much body type");
+        _target = target;
         make_request_proxy(target, args...);
         std::tuple<Args &...> t(args...);
         auto &resp = std::get<sizeof...(args)-1>(args...);
@@ -80,15 +81,17 @@ private:
     uint16_t _port;
     bool _keep_alive;
     bool _connected;
+    std::string _target;
 
-    Http::UrlParam _url_param;
-    Http::HeadParam _head_param;
-    Http::FormDataParam _form_data_param;
-    Http::StringBody _string_body;
-    Http::Response *_resp_ptr;
-    Http::FileResponse *_fileresp_ptr;
+    // Http::UrlParam _url_param;
+    // Http::HeadParam _head_param;
+    // Http::FormDataParam _form_data_param;
+    // Http::StringBody _string_body;
+    // Http::Response *_resp_ptr;
+    // Http::FileResponse *_fileresp_ptr;
 
     std::shared_ptr<CURL> _curl_ptr;
+    char _buffer[128];
 
     // 
     // Http::FileResponse _file_resp;
@@ -100,7 +103,7 @@ private:
     void disconnect();
     void make_request(const std::string &target) ;
     template <typename Response>
-    void request();
+    void request(Response &resp);
 
     void setParam(const Http::UrlParam &);
     void setParam(const Http::HeadParam &);
@@ -109,6 +112,7 @@ private:
     void setParam(Http::Response &resp);
     void setParam(Http::FileResponse &resp);
 
-    static size_t onBodyRead(char *buf, size_t size, size_t n, void *lp);
-    static size_t onHeadRead(char *buf, size_t size, size_t n, void *lp);
+    static size_t onBodyResponse(char *buf, size_t size, size_t n, void *lp);
+    static size_t onFileResponse(char *buf, size_t size, size_t n, void *lp);
+    static size_t onHeadResponse(char *buf, size_t size, size_t n, void *lp);
 };

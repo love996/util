@@ -46,7 +46,7 @@ namespace Http
     struct FormDataParam : public std::map<std::string, CeilData>
     {
     };
-    // using StringBody = std::string;
+    using StringBody = std::string;
 
     struct Response
     {

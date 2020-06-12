@@ -14,9 +14,11 @@ HttpSessionImpl::HttpSessionImpl(const std::string &host, uint16_t port)
     , _port(port)
     , _keep_alive(true)
     , _connected(false)
+    , _stringresp_ptr{nullptr}
+    , _fileresp_ptr{nullptr}
     , _curl{nullptr}
 {
-    init();
+    // init();
 }
 
 HttpSessionImpl::HttpSessionImpl()
@@ -27,8 +29,18 @@ HttpSessionImpl::HttpSessionImpl()
 void HttpSessionImpl::init()
 {
     SPDLOG_INFO("init curl");
-    destroy();
-    _curl = curl_easy_init();
+    // destroy();
+    if (_curl) {
+        curl_easy_reset(_curl);
+    }
+    else {
+        _curl = curl_easy_init();
+    }
+    if (_ofs.is_open()) {
+        _ofs.close();
+    }
+    // _stringresp_ptr = nullptr;
+    _fileresp_ptr = nullptr;
 }
 
 void HttpSessionImpl::destroy()

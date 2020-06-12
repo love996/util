@@ -9,17 +9,16 @@ int main()
     try {
         spdlog::set_level(spdlog::level::trace);
         Http::FileResponse file_resp;
+        Http::StringResponse resp;
         // int resp;
         auto client_ptr = std::make_shared<HttpClient>();
-
         client_ptr->get("https://middle-oss.oss-cn-shenzhen.aliyuncs.com/ota/20200512/RrAvVq_Jetson_Nano_OTA-V0.0.3-20200512.zip", file_resp);
-        SPDLOG_DEBUG("filename [{}] file size {}", file_resp.filename, file_resp.size);
-        // SPDLOG_DEBUG(resp.body);
 
-        client_ptr.reset();
-        client_ptr = std::make_shared<HttpClient>();
-        Http::StringResponse resp;
+        // client_ptr.reset();
+        // client_ptr = std::make_shared<HttpClient>();
         client_ptr->get("https://blog.csdn.net/zww0815/article/details/51275266", resp);
+        SPDLOG_DEBUG(resp.body);
+        SPDLOG_DEBUG("filename [{}] file size {}", file_resp.filename, file_resp.size);
 
 
         client_ptr.reset();

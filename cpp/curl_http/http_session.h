@@ -72,7 +72,8 @@ private:
         static_assert(contains<decltype(resp), Http::FileResponse&, Http::StringResponse&>::value,
                       "at least need a response");
         
-        curl_easy_reset(_curl);
+        // curl_easy_reset(_curl);
+        init();
 
         curl_easy_setopt(_curl, CURLOPT_CUSTOMREQUEST, method);
 

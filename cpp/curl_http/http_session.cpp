@@ -14,8 +14,13 @@ HttpSessionImpl::HttpSessionImpl(const std::string &host, uint16_t port)
     , _keep_alive(true)
     , _connected(false)
 {
+    connect();
 }
 
+HttpSessionImpl::HttpSessionImpl()
+    :HttpSessionImpl("", 0)
+{
+}
 
 void HttpSessionImpl::reconnect()
 {
@@ -61,14 +66,13 @@ void HttpSessionImpl::setParam(const Http::UrlParam &url_param)
             curl_free(convert_v);
         }
         else {
-            COUT << "convert error:" << v;
+            SPDLOG_ERROR("convert error[{}][{}]", k, v);
         }
     }
     if (str_param.size() > 0) {
         str_param[0] = '?';
     }
-    auto final_target = _target + url_param;
-    curl_easy_setopt(curl, CURLOPT_URL, final_target.c_str());
+    _target += str_param;
 }
 
 
@@ -82,9 +86,14 @@ void HttpSessionImpl::setParam(const Http::HeadParam &head_param)
         }
     });
     // header
+    std::string buffer;
     for (auto &[k, v] : head_param) {
-        snprintf(_buffer, sizeof(_buffer), "%s:%s", k.c_str(), v.c_str());
-        header_line = curl_slist_append(header_list, _buffer);
+        // snprintf(_buffer, sizeof(_buffer), "%s:%s", k.c_str(), v.c_str());
+        buffer.clear();
+        buffer += k;
+        buffer += ":";
+        buffer += v;
+        header_line = curl_slist_append(header_list, buffer.c_str());
         if (header_line) {
             header_list = header_line;
         }
@@ -100,128 +109,80 @@ void HttpSessionImpl::setParam(const Http::HeadParam &head_param)
 
 void HttpSessionImpl::setParam(const Http::FormDataParam &form_data_param)
 {
-    _form_data_param = form_data_param;
+    auto curl = _curl_ptr.get();
+    auto mime_ptr = std::shared_ptr<curl_mime>(curl_mime_init(curl), curl_mime_free);
+    auto mime = mime_ptr.get();
+    for (auto &[k, v] : form_data_param) {
+        if (v.value.size()) {
+            auto part = curl_mime_addpart(mime);
+            curl_mime_name(part, k.c_str());
+            curl_mime_data(part, v.value.c_str(), v.value.size());
+
+        }
+        else if (v.filename.size()) {
+            auto part = curl_mime_addpart(mime);
+            curl_mime_name(part, k.c_str());
+            curl_mime_filedata(part, v.value.c_str());
+            curl_mime_filename(part, k.c_str());
+        }
+        else {
+            CERR << "error key:" << k;
+        }
+    }
 }
 
 void HttpSessionImpl::setParam(const Http::StringBody &body)
 {
-    _string_body = body;
+    auto curl = _curl_ptr.get();
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
 }
 
-void HttpSessionImpl::setParam(Http::Response &resp)
+void HttpSessionImpl::setParam(Http::StringResponse &resp)
 {
-    _resp_ptr = &resp;
+    SPDLOG_DEBUG("string resp");
+    _stringresp_ptr = &resp;
 }
 
-
-void HttpSessionImpl::make_request(const std::string &target)
+void HttpSessionImpl::setParam(Http::FileResponse &resp)
 {
-
-
-    // body
-
-    if (_body.size()) {
-        _req.set(http::field::body, _body);
-        _req.prepare_payload();
-    }
-
-    curl_easy_setopt(curl, CURLOPT_URL, final_target.c_str());
-    // curl_easy_setopt(curl, CURLOPT_HEADER, 1);
-  
-    // curl_easy_setopt(curl, CURLOPT_READFUNCTION,OnReadData);
-    // curl_easy_setopt(curl, CURLOPT_READDATA, rfp);
-  
-    // body
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, OnWirteData);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)wfp);
-  
-    // header
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, OnWirteData);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void*)hfp);
-  
-    
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL,1);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT,20);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT,20);
-    _req.set(http::field::host, _host);
-    _req.set(http::field::user_agent, BOOST_BEAST_VERSION);
-    _req.version(_version);
-    _req.keep_alive(_keep_alive);
-    // head
+    SPDLOG_DEBUG("file resp");
+    _fileresp_ptr = &resp;
 }
-
-
-void HttpSessionImpl::request(http::response<Body> &resp)
+std::string HttpSessionImpl::getFilename() const
 {
-    assert(!Client && "server should not call request");
-    // static_assert(!Client,  "server should not call request");
-    _buffer.clear();
-    int retry = 0;
-    if (_req.keep_alive()) {
-        retry = 1;
-    }
-    do {
-        try {
-            connect();
-            if constexpr(ssl) {
-                http::write(_ssl_stream, _req);
-                http::read(_ssl_stream, _buffer, resp);
-            }
-            else {
-                http::write(_stream, _req);
-                http::read(_stream, _buffer, resp);
-            }
-            break;
-        }
-        catch (std::exception &e) {
-            CERR << e.what();
-            if (--retry >= 0) {
-                reconnect();
-            }
-            else {
-                BOOST_THROW_EXCEPTION(e);
-                // throw;
-            }
-        }
-    } while(retry >= 0);
+    // TODO
+    assert(false && "not impl");
+    return "";
 }
-
-
-void HttpSessionImpl::async_request(StreamType &stream, const Handler &handler)
-{
-    if (!Client) {
-    }
-    else if constexpr(Client) {
-        // _resp = Http::Response{};
-        _buffer.clear();
-        // _resp.clear();
-        int retry = 0;
-        if (_req.keep_alive()) {
-            retry = 1;
-        }
-        do {
-            try {
-                do_async_request(stream, handler);
-                break;
-            }
-            catch (std::exception &e) {
-                CERR << e.what();
-                if (--retry >= 0) {
-                    reconnect();
-                }
-                else {
-                    BOOST_THROW_EXCEPTION(e);
-                    // throw;
-                }
-            }
-        } while(retry >= 0);
-    }
-}
-
 
 size_t HttpSessionImpl::onHeadResponse(char *buf, size_t size, size_t n, void *lp)
 {
+    if (!buf || !lp) return 0;
+    SPDLOG_DEBUG("head response [{}] [{}]", buf, size * n);
+    // TODO
+    SPDLOG_WARN("need parser header[{}]", buf);
+    return 0;
 }
-size_t HttpSessionImpl::onBodyResponse(char *buf, size_t size, size_t n, void *lp)
+size_t HttpSessionImpl::onStringResponse(char *buf, size_t size, size_t n, void *lp)
 {
+    SPDLOG_DEBUG("string response [{}] [{}]", buf, size * n);
+    if (!buf || !lp) return 0;
+    auto obj_ptr = static_cast<HttpSessionImpl*>(lp) ;
+    obj_ptr->_stringresp_ptr->body.append(buf, size * n);
+    return size * n;
+}
+size_t HttpSessionImpl::onFileResponse(char *buf, size_t size, size_t n, void *lp)
+{
+    SPDLOG_DEBUG("file response [{}] [{}]", buf, size * n);
+    if (!buf || !lp) return 0;
+    auto obj_ptr = static_cast<HttpSessionImpl*>(lp) ;
+    auto &ofs = obj_ptr->_ofs;
+    if (!ofs.is_open()) {
+        ofs.open(obj_ptr->getFilename());
+    }
+    ofs.write(buf, size * n);
+    if (ofs.good()) {
+        return size * n;
+    }
+    return 0;
 }

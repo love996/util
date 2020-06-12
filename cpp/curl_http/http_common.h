@@ -48,7 +48,7 @@ namespace Http
     };
     using StringBody = std::string;
 
-    struct Response
+    struct StringResponse
     {
         std::vector<HeadParam> header_list;
         std::string body;

@@ -2,7 +2,7 @@
 using namespace std;
 #include "util/output.h"
 
-#include "http/http_session.h"
+#include "beast_http/http_session.h"
 
 void readHandler(const beast::error_code &, const Http::StringResponse &resp)
 {

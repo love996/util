@@ -3,6 +3,7 @@
 #include "util/output.h"
 #include "util/defer.h"
 #include "http_session.h"
+#include <boost/filesystem.hpp>
 
 
 // using ErrorMsg = boost::error_info<struct tag_err_msg, std::string>;
@@ -13,8 +14,9 @@ HttpSessionImpl::HttpSessionImpl(const std::string &host, uint16_t port)
     , _port(port)
     , _keep_alive(true)
     , _connected(false)
+    , _curl{nullptr}
 {
-    connect();
+    init();
 }
 
 HttpSessionImpl::HttpSessionImpl()
@@ -22,51 +24,52 @@ HttpSessionImpl::HttpSessionImpl()
 {
 }
 
-void HttpSessionImpl::reconnect()
+void HttpSessionImpl::init()
 {
-    disconnect();
-    connect();
+    SPDLOG_INFO("init curl");
+    destroy();
+    _curl = curl_easy_init();
 }
 
-
-void HttpSessionImpl::connect()
+void HttpSessionImpl::destroy()
 {
-    if (_connected) return;
-    _curl_ptr = std::shared_ptr<CURL>(curl_easy_init(), curl_easy_cleanup);
-}
-
-
-void HttpSessionImpl::disconnect()
-{
-    if (!_connected) return ;
-    _connected = false;
-    _curl_ptr.reset();
-    return;
+    if (_curl) {
+        curl_easy_cleanup(_curl);
+        _curl = nullptr;
+    }
 }
 
 HttpSessionImpl::~HttpSessionImpl()
 {
     COUT << "disconnect";
-    disconnect();
+    destroy();
 }
 
 
 void HttpSessionImpl::setParam(const Http::UrlParam &url_param)
 {
     std::string str_param;
-    auto curl = _curl_ptr.get();
     // url_param
     for (auto &[k, v] : url_param) {
         str_param += "&";
-        str_param += k;
-        str_param += "=";
-        auto convert_v = curl_easy_escape(curl, v.c_str(), v.size());
-        if (convert_v) {
-            str_param += convert_v;
-            curl_free(convert_v);
+        auto convert_param = curl_easy_escape(_curl, k.c_str(), k.size());
+        if (!convert_param) {
+            BOOST_THROW_EXCEPTION(HttpException() << ErrorMsg{"param key:" + k + " value:" + v});
         }
-        else {
-            SPDLOG_ERROR("convert error[{}][{}]", k, v);
+
+        str_param += convert_param;
+        curl_free(convert_param);
+
+        str_param += "=";
+
+        if (v.size() > 0) {
+            convert_param = curl_easy_escape(_curl, v.c_str(), v.size());
+            if (!convert_param) {
+                BOOST_THROW_EXCEPTION(HttpException() << ErrorMsg{"param key:" + k + " value:" + v});
+            }
+
+            str_param += convert_param;
+            curl_free(convert_param);
         }
     }
     if (str_param.size() > 0) {
@@ -78,6 +81,11 @@ void HttpSessionImpl::setParam(const Http::UrlParam &url_param)
 
 void HttpSessionImpl::setParam(const Http::HeadParam &head_param)
 {
+    _head_param = head_param;
+}
+
+void HttpSessionImpl::makeHeadParam()
+{
     struct curl_slist *header_list = nullptr;
     struct curl_slist *header_line = nullptr;
     Defer f([&]{
@@ -87,7 +95,7 @@ void HttpSessionImpl::setParam(const Http::HeadParam &head_param)
     });
     // header
     std::string buffer;
-    for (auto &[k, v] : head_param) {
+    for (auto &[k, v] : _head_param) {
         // snprintf(_buffer, sizeof(_buffer), "%s:%s", k.c_str(), v.c_str());
         buffer.clear();
         buffer += k;
@@ -102,15 +110,13 @@ void HttpSessionImpl::setParam(const Http::HeadParam &head_param)
             return;
         }
     }
-    auto curl = _curl_ptr.get();
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
+    curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, header_list);
 
 }
 
 void HttpSessionImpl::setParam(const Http::FormDataParam &form_data_param)
 {
-    auto curl = _curl_ptr.get();
-    auto mime_ptr = std::shared_ptr<curl_mime>(curl_mime_init(curl), curl_mime_free);
+    auto mime_ptr = std::shared_ptr<curl_mime>(curl_mime_init(_curl), curl_mime_free);
     auto mime = mime_ptr.get();
     for (auto &[k, v] : form_data_param) {
         if (v.value.size()) {
@@ -133,13 +139,13 @@ void HttpSessionImpl::setParam(const Http::FormDataParam &form_data_param)
 
 void HttpSessionImpl::setParam(const Http::StringBody &body)
 {
-    auto curl = _curl_ptr.get();
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+    curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, body.c_str());
 }
 
 void HttpSessionImpl::setParam(Http::StringResponse &resp)
 {
     SPDLOG_DEBUG("string resp");
+    resp.body.clear();
     _stringresp_ptr = &resp;
 }
 
@@ -147,41 +153,56 @@ void HttpSessionImpl::setParam(Http::FileResponse &resp)
 {
     SPDLOG_DEBUG("file resp");
     _fileresp_ptr = &resp;
+    // 续传
+    _head_param["Range"] = "bytes=" + std::to_string(resp.size) + "-";
+    if (resp.size > 0) {
+        _ofs.open(getFilename(), std::ios::in | std::ios::out);
+        _ofs.seekp(resp.size);
+    }
+    else {
+        _ofs.open(getFilename(), std::ios::out);
+    }
 }
 std::string HttpSessionImpl::getFilename() const
 {
-    // TODO
-    assert(false && "not impl");
-    return "";
+    assert(_fileresp_ptr && "file pointer is null");
+    if (_fileresp_ptr->filename.size()) {
+        return _fileresp_ptr->filename;
+    }
+
+    namespace fs = boost::filesystem;
+    fs::path p;
+    p = _target;
+    return _fileresp_ptr->filename = p.filename().string();
 }
 
 size_t HttpSessionImpl::onHeadResponse(char *buf, size_t size, size_t n, void *lp)
 {
     if (!buf || !lp) return 0;
-    SPDLOG_DEBUG("head response [{}] [{}]", buf, size * n);
+    // SPDLOG_DEBUG("head response [{}] [{}]", buf, size * n);
     // TODO
-    SPDLOG_WARN("need parser header[{}]", buf);
-    return 0;
+    // SPDLOG_WARN("need parser header[{}]", buf);
+    return size * n;
 }
+
 size_t HttpSessionImpl::onStringResponse(char *buf, size_t size, size_t n, void *lp)
 {
-    SPDLOG_DEBUG("string response [{}] [{}]", buf, size * n);
+    // SPDLOG_DEBUG("string response [{}] [{}]", buf, size * n);
     if (!buf || !lp) return 0;
     auto obj_ptr = static_cast<HttpSessionImpl*>(lp) ;
     obj_ptr->_stringresp_ptr->body.append(buf, size * n);
     return size * n;
 }
+
 size_t HttpSessionImpl::onFileResponse(char *buf, size_t size, size_t n, void *lp)
 {
-    SPDLOG_DEBUG("file response [{}] [{}]", buf, size * n);
+    SPDLOG_DEBUG("file [{}]", size * n);
     if (!buf || !lp) return 0;
     auto obj_ptr = static_cast<HttpSessionImpl*>(lp) ;
     auto &ofs = obj_ptr->_ofs;
-    if (!ofs.is_open()) {
-        ofs.open(obj_ptr->getFilename());
-    }
     ofs.write(buf, size * n);
     if (ofs.good()) {
+        obj_ptr->_fileresp_ptr->size += size * n;
         return size * n;
     }
     return 0;

@@ -58,5 +58,6 @@ namespace Http
     {
         std::vector<HeadParam> header_list;
         std::string filename;
+        size_t size{0};
     };
 }

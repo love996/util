@@ -54,6 +54,12 @@ public:
         request_proxy("GET", target, args...);
     }
 
+    template <typename ...Args>
+    void post(const std::string &target, Args &...args)
+    {
+        request_proxy("POST", target, args...);
+    }
+
 private:
     template <typename ...Args>
     void request_proxy(const char *method, const std::string &target, Args &...args)
@@ -66,10 +72,9 @@ private:
         static_assert(contains<decltype(resp), Http::FileResponse&, Http::StringResponse&>::value,
                       "at least need a response");
         
-        auto curl = _curl_ptr.get();
-        curl_easy_reset(curl);
+        curl_easy_reset(_curl);
 
-        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
+        curl_easy_setopt(_curl, CURLOPT_CUSTOMREQUEST, method);
 
         _target = target;
         std::initializer_list<int> arr{
@@ -77,7 +82,8 @@ private:
         };
         boost::ignore_unused(arr);
         SPDLOG_INFO("url[{}]", _target);
-        curl_easy_setopt(curl, CURLOPT_URL, _target.c_str());
+        makeHeadParam();
+        curl_easy_setopt(_curl, CURLOPT_URL, _target.c_str());
         SPDLOG_DEBUG("request_proxy[{}][{}][{}]",
                 typeid(Http::StringResponse&).name(),
                 typeid(Http::FileResponse&).name(),
@@ -93,43 +99,36 @@ private:
     uint16_t _port;
     bool _keep_alive;
     bool _connected;
-    std::ofstream _ofs;
+    std::fstream _ofs;
     std::string _target;
 
     // Http::UrlParam _url_param;
-    // Http::HeadParam _head_param;
+    Http::HeadParam _head_param;
     // Http::FormDataParam _form_data_param;
     // Http::StringBody _string_body;
     Http::StringResponse *_stringresp_ptr;
     Http::FileResponse *_fileresp_ptr;
 
-    std::shared_ptr<CURL> _curl_ptr;
-    // char _buffer[128];
-
-    // 
-    // Http::FileResponse _file_resp;
-    // ssl
+    CURL *_curl;
 
 private:
-    void reconnect();
-    void connect();
-    void disconnect();
+    void init();
+    void destroy();
     std::string getFilename() const;
 
     template <typename Response>
     void make_request(Response &resp)
     {
-        auto curl = _curl_ptr.get();
-        // curl_easy_setopt(curl, CURLOPT_HEADER, 0);
+        // curl_easy_setopt(_curl, CURLOPT_HEADER, 0);
         if (!strncmp(_target.c_str(), "https", strlen("https"))) {
-            curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER,false);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST,false);
+            curl_easy_setopt(_curl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
+            curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER,false);
+            curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST,false);
         }
   
         // header
-        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HttpSessionImpl::onHeadResponse);
-        curl_easy_setopt(curl, CURLOPT_HEADERDATA, &resp.header_list);
+        curl_easy_setopt(_curl, CURLOPT_HEADERFUNCTION, HttpSessionImpl::onHeadResponse);
+        curl_easy_setopt(_curl, CURLOPT_HEADERDATA, &resp.header_list);
   
         SPDLOG_DEBUG("make_request[{}][{}][{}]",
                 typeid(Http::StringResponse&).name(),
@@ -138,28 +137,28 @@ private:
         if constexpr(std::is_same<Response&, Http::StringResponse&>::value) {
             // string body
             SPDLOG_DEBUG("onStringResponse");
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpSessionImpl::onStringResponse);
+            curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, HttpSessionImpl::onStringResponse);
         }
         else if constexpr(std::is_same<Response&, Http::FileResponse&>::value) {
             // file body
             SPDLOG_DEBUG("onFileResponse");
-            // curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpSessionImpl::onFileResponse);
+            curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, HttpSessionImpl::onFileResponse);
         }
         else {
             static_assert(always_false<Response&>, "unknown resp type");
             // static_assert(contains<Response&, Http::StringResponse&, Http::FileResponse&>::value, "unknown resp type");
         }
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, this);
+        curl_easy_setopt(_curl, CURLOPT_WRITEDATA, this);
         
-        curl_easy_setopt(curl, CURLOPT_NOSIGNAL,1);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT,20);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT,20);
+        curl_easy_setopt(_curl, CURLOPT_NOSIGNAL, 1);
+        curl_easy_setopt(_curl, CURLOPT_CONNECTTIMEOUT, 20);
+        curl_easy_setopt(_curl, CURLOPT_TIMEOUT, 20);
         SPDLOG_DEBUG("send request");
-        auto curl_code = curl_easy_perform(curl);
+        auto curl_code = curl_easy_perform(_curl);
         if (curl_code != CURLE_OK) {
             SPDLOG_ERROR("curl_easy_perform() failed:{}\n",curl_easy_strerror(curl_code));
         }
-        SPDLOG_INFO("curl code [{}]", curl_code);
+        SPDLOG_INFO("_curl code [{}]", curl_code);
     }
 
     // void request(Http::StringResponse &resp);
@@ -167,6 +166,7 @@ private:
 
     void setParam(const Http::UrlParam &);
     void setParam(const Http::HeadParam &);
+    void makeHeadParam();
     void setParam(const Http::FormDataParam &);
     void setParam(const Http::StringBody &);
     void setParam(Http::StringResponse &);

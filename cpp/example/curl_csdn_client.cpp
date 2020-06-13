@@ -12,16 +12,14 @@ int main()
         Http::StringResponse resp;
         // int resp;
         auto client_ptr = std::make_shared<HttpClient>();
-        client_ptr->get("https://middle-oss.oss-cn-shenzhen.aliyuncs.com/ota/20200512/RrAvVq_Jetson_Nano_OTA-V0.0.3-20200512.zip", file_resp);
-
-        // client_ptr.reset();
-        // client_ptr = std::make_shared<HttpClient>();
-        client_ptr->get("https://blog.csdn.net/zww0815/article/details/51275266", resp);
-        SPDLOG_DEBUG(resp.body);
+        client_ptr->get("https://download.microsoft.com/download/4/2/2/42245968-6A79-4DA7-A5FB-08C0AD0AE661/windowssdk/winsdksetup.exe", file_resp);
         SPDLOG_DEBUG("filename [{}] file size {}", file_resp.filename, file_resp.size);
 
+        client_ptr = std::make_shared<HttpClient>();
+        client_ptr->get("https://blog.csdn.net/zww817/article/details/51275266", resp);
+        SPDLOG_DEBUG(resp.body);
 
-        client_ptr.reset();
+
         client_ptr = std::make_shared<HttpClient>();
         Http::UrlParam param;
         param["alarmTypeCode"] = "95714%2341";

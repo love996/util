@@ -8,6 +8,9 @@ class HttpException : public virtual Exception
 {
 };
 
+#define THROW_HTTP(msg) \
+    BOOST_THROW_EXCEPTION(HttpException() << ErrorMsg{(msg)})
+
 
 namespace Http
 {

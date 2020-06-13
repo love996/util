@@ -20,6 +20,9 @@ include_directories(curl_http)
 add_executable(curl_csdn_client example/curl_csdn_client.cpp ${COMMON} ${CURLHTTP})
 target_link_libraries(curl_csdn_client curl pthread boost_filesystem)
 
+add_executable(curl_file example/curl_file.cpp)
+target_link_libraries(curl_file curl pthread)
+
 #add_executable(report example/test.cpp ${COMMON} ${HTTP})
 #target_link_libraries(report pthread ssl crypto)
 #

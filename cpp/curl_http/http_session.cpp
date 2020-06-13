@@ -5,16 +5,18 @@
 #include "http_session.h"
 #include <boost/filesystem.hpp>
 
+constexpr int buffer_size = 128;
+
 
 // using ErrorMsg = boost::error_info<struct tag_err_msg, std::string>;
 
 HttpSessionImpl::HttpSessionImpl(const std::string &host, uint16_t port)
-    : _version{11}
-    , _host(host)
-    , _port(port)
-    , _keep_alive(true)
-    , _connected(false)
-    , _stringresp_ptr{nullptr}
+    : 
+    // _version{11}
+    // , _host(host)
+    // , _port(port)
+    // , _keep_alive(true)
+    _stringresp_ptr{nullptr}
     , _fileresp_ptr{nullptr}
     , _curl{nullptr}
 {
@@ -35,12 +37,19 @@ void HttpSessionImpl::init()
     }
     else {
         _curl = curl_easy_init();
+        if (!_curl) {
+            THROW_HTTP("init curl fail");
+        }
     }
     if (_ofs.is_open()) {
         _ofs.close();
     }
-    // _stringresp_ptr = nullptr;
+    _stringresp_ptr = nullptr;
     _fileresp_ptr = nullptr;
+    if (_buffer.capacity() != buffer_size) {
+        _buffer.reserve(buffer_size);
+    }
+    // _buffer.clear();
 }
 
 void HttpSessionImpl::destroy()
@@ -60,34 +69,40 @@ HttpSessionImpl::~HttpSessionImpl()
 
 void HttpSessionImpl::setParam(const Http::UrlParam &url_param)
 {
-    std::string str_param;
+    _buffer.clear();
+    auto convert_param = curl_easy_escape(_curl, _target.c_str(), _target.size());
+    if (!convert_param) {
+        THROW_HTTP("target:" +  _target);
+    }
+    _target = convert_param;
+    curl_free(convert_param);
     // url_param
     for (auto &[k, v] : url_param) {
-        str_param += "&";
-        auto convert_param = curl_easy_escape(_curl, k.c_str(), k.size());
+        _buffer += "&";
+        convert_param = curl_easy_escape(_curl, k.c_str(), k.size());
         if (!convert_param) {
-            BOOST_THROW_EXCEPTION(HttpException() << ErrorMsg{"param key:" + k + " value:" + v});
+            THROW_HTTP("param key:" + k + " value:" + v);
         }
 
-        str_param += convert_param;
+        _buffer += convert_param;
         curl_free(convert_param);
 
-        str_param += "=";
+        _buffer += "=";
 
         if (v.size() > 0) {
             convert_param = curl_easy_escape(_curl, v.c_str(), v.size());
             if (!convert_param) {
-                BOOST_THROW_EXCEPTION(HttpException() << ErrorMsg{"param key:" + k + " value:" + v});
+                THROW_HTTP("param key:" + k + " value:" + v);
             }
 
-            str_param += convert_param;
+            _buffer += convert_param;
             curl_free(convert_param);
         }
     }
-    if (str_param.size() > 0) {
-        str_param[0] = '?';
+    if (_buffer .size() > 0) {
+        _buffer[0] = '?';
     }
-    _target += str_param;
+    _target += _buffer;
 }
 
 
@@ -96,34 +111,29 @@ void HttpSessionImpl::setParam(const Http::HeadParam &head_param)
     _head_param = head_param;
 }
 
-void HttpSessionImpl::makeHeadParam()
+struct curl_slist *HttpSessionImpl::makeHeadParam()
 {
     struct curl_slist *header_list = nullptr;
     struct curl_slist *header_line = nullptr;
-    Defer f([&]{
-        if (header_list) {
-            curl_slist_free_all(header_list);
-        }
-    });
     // header
-    std::string buffer;
     for (auto &[k, v] : _head_param) {
         // snprintf(_buffer, sizeof(_buffer), "%s:%s", k.c_str(), v.c_str());
-        buffer.clear();
-        buffer += k;
-        buffer += ":";
-        buffer += v;
-        header_line = curl_slist_append(header_list, buffer.c_str());
+        _buffer.clear();
+        _buffer += k;
+        _buffer += ": ";
+        _buffer += v;
+        SPDLOG_INFO("header[{}]", _buffer);
+        header_line = curl_slist_append(header_list, _buffer.c_str());
         if (header_line) {
             header_list = header_line;
         }
         else {
             CERR << "make header error";
-            return;
+            return header_list;
         }
     }
     curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, header_list);
-
+    return header_list;
 }
 
 void HttpSessionImpl::setParam(const Http::FormDataParam &form_data_param)
@@ -151,24 +161,29 @@ void HttpSessionImpl::setParam(const Http::FormDataParam &form_data_param)
 
 void HttpSessionImpl::setParam(const Http::StringBody &body)
 {
-    curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, body.c_str());
+    SPDLOG_DEBUG("set string body");
+    if (CURLE_OK != curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, body.c_str())) {
+        THROW_HTTP("set string body error");
+    }
 }
 
 void HttpSessionImpl::setParam(Http::StringResponse &resp)
 {
-    SPDLOG_DEBUG("string resp");
+    SPDLOG_DEBUG("set string resp");
     resp.body.clear();
     _stringresp_ptr = &resp;
 }
 
 void HttpSessionImpl::setParam(Http::FileResponse &resp)
 {
-    SPDLOG_DEBUG("file resp");
+    SPDLOG_DEBUG("set file resp");
     _fileresp_ptr = &resp;
     // 续传
     _head_param["Range"] = "bytes=" + std::to_string(resp.size) + "-";
     if (resp.size > 0) {
-        _ofs.open(getFilename(), std::ios::in | std::ios::out);
+        auto filename = getFilename();
+        SPDLOG_DEBUG("filename:{}", filename);
+        _ofs.open(filename, std::ios::in | std::ios::out);
         _ofs.seekp(resp.size);
     }
     else {
@@ -199,7 +214,7 @@ size_t HttpSessionImpl::onHeadResponse(char *buf, size_t size, size_t n, void *l
 
 size_t HttpSessionImpl::onStringResponse(char *buf, size_t size, size_t n, void *lp)
 {
-    // SPDLOG_DEBUG("string response [{}] [{}]", buf, size * n);
+    SPDLOG_DEBUG("string response [{}] [{}]", buf, size * n);
     if (!buf || !lp) return 0;
     auto obj_ptr = static_cast<HttpSessionImpl*>(lp) ;
     obj_ptr->_stringresp_ptr->body.append(buf, size * n);
@@ -209,6 +224,7 @@ size_t HttpSessionImpl::onStringResponse(char *buf, size_t size, size_t n, void 
 size_t HttpSessionImpl::onFileResponse(char *buf, size_t size, size_t n, void *lp)
 {
     SPDLOG_DEBUG("file [{}]", size * n);
+    COUT << "file:" << size * n;
     if (!buf || !lp) return 0;
     auto obj_ptr = static_cast<HttpSessionImpl*>(lp) ;
     auto &ofs = obj_ptr->_ofs;
@@ -218,4 +234,10 @@ size_t HttpSessionImpl::onFileResponse(char *buf, size_t size, size_t n, void *l
         return size * n;
     }
     return 0;
+}
+
+size_t  write_data (void  *ptr, size_t  size, size_t  nmemb, FILE  *stream)
+{
+    size_t written = fwrite(ptr, size, nmemb, stream);
+    return written;
 }

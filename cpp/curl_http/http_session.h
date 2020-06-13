@@ -9,6 +9,7 @@
 #include "common/template.h"
 #include "http_common.h"
 #include "util/output.h"
+#include "util/defer.h"
 
 #define SYNC_HTTP_METHOD(method) \
     template <typename ...Args> \
@@ -39,6 +40,8 @@
 
 // using HandlerMap = std::map<Http::RouteInfo, Http::RequestHandler>;
 // using HandlerMapPtr = std::shared_ptr<HandlerMap>;
+//
+size_t  write_data (void  *ptr, size_t  size, size_t  nmemb, FILE  *stream);
 
 class HttpSessionImpl: public std::enable_shared_from_this<HttpSessionImpl>
 {
@@ -78,13 +81,20 @@ private:
         curl_easy_setopt(_curl, CURLOPT_CUSTOMREQUEST, method);
 
         _target = target;
+
         std::initializer_list<int> arr{
              (this->setParam(args), 0)...
         };
         boost::ignore_unused(arr);
         SPDLOG_INFO("url[{}]", _target);
-        makeHeadParam();
         curl_easy_setopt(_curl, CURLOPT_URL, _target.c_str());
+        auto header_list = makeHeadParam();
+        Defer f([&]{
+            if (header_list) {
+                curl_slist_free_all(header_list);
+            }   
+        }); 
+
         SPDLOG_DEBUG("request_proxy[{}][{}][{}]",
                 typeid(Http::StringResponse&).name(),
                 typeid(Http::FileResponse&).name(),
@@ -95,13 +105,14 @@ private:
     }
 
 private:
-    int _version;
-    std::string _host;
-    uint16_t _port;
+    // int _version;
+    // std::string _host;
+    // uint16_t _port;
     bool _keep_alive;
-    bool _connected;
+    // bool _connected;
     std::fstream _ofs;
     std::string _target;
+    std::string _buffer;
 
     // Http::UrlParam _url_param;
     Http::HeadParam _head_param;
@@ -122,10 +133,15 @@ private:
     {
         // curl_easy_setopt(_curl, CURLOPT_HEADER, 0);
         if (!strncmp(_target.c_str(), "https", strlen("https"))) {
-            curl_easy_setopt(_curl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
-            curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER,false);
-            curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST,false);
+            // curl_easy_setopt(_curl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
+            // curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER,false);
+            // curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST,false);
         }
+        //
+        // struct curl_slist *headers = NULL;
+        // headers = curl_slist_append(headers, "body: empty");
+        // headers = curl_slist_append(headers, "cache-control: no-cache");
+        // curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, headers);
   
         // header
         curl_easy_setopt(_curl, CURLOPT_HEADERFUNCTION, HttpSessionImpl::onHeadResponse);
@@ -143,6 +159,8 @@ private:
         else if constexpr(std::is_same<Response&, Http::FileResponse&>::value) {
             // file body
             SPDLOG_DEBUG("onFileResponse");
+            // curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, write_data);
+            // curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, HttpSessionImpl::onStringResponse);
             curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, HttpSessionImpl::onFileResponse);
         }
         else {
@@ -167,7 +185,7 @@ private:
 
     void setParam(const Http::UrlParam &);
     void setParam(const Http::HeadParam &);
-    void makeHeadParam();
+    struct curl_slist *makeHeadParam();
     void setParam(const Http::FormDataParam &);
     void setParam(const Http::StringBody &);
     void setParam(Http::StringResponse &);

@@ -13,12 +13,20 @@ aux_source_directory(curl_http CURLHTTP)
 aux_source_directory(util UTIL)
 aux_source_directory(example EXAMPLE)
 
-include_directories(curl_http)
+message(STATUS ${CMAKE_SOURCE_DIR})
+message(STATUS "${PROJECT_NAME}")
+message(STATUS ${PROJECT_PATH})
+
+include_directories(
+    ${CMAKE_SOURCE_DIR}
+    )
 
 #add_executable(csdn_https_client example/csdn_https_client.cpp ${COMMON} ${HTTP})
 #target_link_libraries(csdn_https_client pthread ssl crypto)
-add_executable(curl_csdn_client example/curl_csdn_client.cpp ${COMMON} ${CURLHTTP})
+
+add_executable(curl_csdn_client example/curl_csdn_client.cpp ${COMMON} ${CURLHTTP} ${UTIL})
 target_link_libraries(curl_csdn_client curl pthread boost_filesystem)
+target_include_directories(curl_csdn_client PUBLIC ${CMAKE_SOURCE_DIR})
 
 add_executable(curl_file example/curl_file.cpp)
 target_link_libraries(curl_file curl pthread)

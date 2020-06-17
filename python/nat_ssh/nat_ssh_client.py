@@ -63,8 +63,7 @@ class NatClient:
         self.__client_id = client_id
         self.__server_ip = server_ip
         self.__server_port = server_port
-        self.__nat_ip = nat_ip
-        self.__nat_port = nat_port
+        self.__agents = {}
         self.__epoll = select.epoll()
         self.__fd_sockets = {}
         self.__client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -73,6 +72,9 @@ class NatClient:
         self.__buffer = bytes()
         self.__length = 0
         self.__left = 0
+
+    def add_agent(ip, port):
+        self.__agents[(ip, port)] = None
 
     def register(self, sock):
         self.__epoll.register(sock.fileno(), select.EPOLLIN)
@@ -143,3 +145,8 @@ class NatClient:
     def transfer_server(self, sock):
         session = self.__sock_sessions[sock]
         session.transfer_to_server()
+
+if _name__ == '__main__':
+    NatClient nat_client("test001", "0.0.0.0", 12345)
+    nat_client.add_agent("0.0.0.0", 22)
+    net_client.run()

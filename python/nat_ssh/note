@@ -1,0 +1,33 @@
+cmd : login, connect, data
+
+# msg format
+session_id | cmd | data
+
+# eg:login
+session_id | login | client_id
+
+一、建立会话
+启动客户端
+1、client->server,建立连接
+2、上传自己的client_id
+3、server 记录client_id与socket的对应关系
+4、server 绑定新的转发端口给此client转发使用, 并记录对应关系
+5、server 告诉client为它建立的公网地址
+
+二、与目标建立连接
+1、向server的转发端口请求建立连接
+2、server根据请求的端口, 查找到对应的client socket
+3、server通知client向目标服务建立连接
+4、client建立连接成功后则返回会话id
+5、服务端记录此会话id
+
+三、向目标发送数据
+1、向server的转发端口发送数据
+2、server根据请求的端口, 查找到对应的client socket
+3、server通知client向相应的会话服务发送数据
+4、client根据会话id向目标服务发送数据
+
+四、目标服务应答数据
+1、client接收socket数据，根据socket查找对应的会话id
+2、client向服务端发送某个会话的数据
+3、server根据收到的数据，根据会话id查找对应的socket, 并向socket发送数据
